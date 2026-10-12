@@ -1,0 +1,737 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Chemical Market — Prisma Schema  (Phase 2)
+// Node: >=22  |  DB: PostgreSQL 16  |  Prisma: ^5
+//
+// PRIVATE field convention:
+//   Fields/models marked "// ⚠ PRIVATE" must NEVER appear in public or
+//   customer API responses. Strip them in sanitiseProduct() / serialisers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum Role {
+  ADMIN
+  CUSTOMER
+}
+
+/// ⚠ PRIVATE — must never reach public APIs
+enum SourceType {
+  OUR_COMPANY
+  OTHER_COMPANY
+}
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum PricingMode {
+  FIXED
+  REQUEST_QUOTE
+}
+
+enum StockStatus {
+  IN_STOCK
+  LOW_STOCK
+  OUT_OF_STOCK
+  ON_REQUEST
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+enum DocumentType {
+  SDS   // Safety Data Sheet
+  TDS   // Technical Data Sheet
+  COA   // Certificate of Analysis
+  OTHER
+}
+
+enum NotifyChannel {
+  EMAIL
+  WHATSAPP
+}
+
+enum NotifyStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum BlogStatus {
+  PUBLISHED
+  DRAFT
+  ARCHIVED
+}
+
+enum SectionType {
+  HERO_BANNER
+  FEATURED_CATEGORIES
+  FEATURED_PRODUCTS
+  FEATURED_BRANDS
+  COMPANY_INTRO
+  ORDERING_STEPS
+  BLOG_HIGHLIGHTS
+  CONTACT_CTA
+  FOOTER
+  ANNOUNCEMENT
+  TESTIMONIALS
+  CUSTOM_HTML
+}
+
+// ─────────────────────────────────────────────
+// USERS & AUTH
+// ─────────────────────────────────────────────
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  passwordHash String // ⚠ PRIVATE — never serialise
+
+  role Role @default(CUSTOMER)
+
+  fullName String
+  phone    String?
+
+  isActive   Boolean @default(true)
+  isApproved Boolean @default(false) // admin must approve before ordering
+  failedLoginAttempts Int      @default(0)
+  lockedUntil         DateTime?
+
+  // Relations
+  profile          CustomerProfile?
+  orders           OrderRequest[]
+  refreshTokens    RefreshToken[]
+  auditLogs        AuditLog[]
+  notificationLogs NotificationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([email])
+  @@index([role])
+  @@index([isApproved])
+  @@map("users")
+}
+
+model CustomerProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Company details
+  companyName  String?
+  gstNumber    String? // ⚠ PRIVATE — visible to admin only
+  panNumber    String? // ⚠ PRIVATE — visible to admin only
+  businessType String? // e.g. "Manufacturer", "Trader", "Distributor"
+
+  // Company address (billing)
+  companyAddress Json? // { line1, line2, city, state, pincode, country }
+
+  // Shipping addresses array
+  // [{ id, label, name, phone, line1, line2, city, state, pincode, isDefault }]
+  addresses Json @default("[]")
+
+  // Contact
+  alternatePhone String?
+  website        String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("customer_profiles")
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// Password-reset tokens (short-lived, single-use)
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique // hashed before storing
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([token])
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────
+// COMPANY (your legal entity — singleton)
+// ─────────────────────────────────────────────
+
+model Company {
+  id             String  @id @default(cuid())
+  name           String
+  type            String?
+  isManufacturer Boolean @default(false)
+  isSupplier     Boolean @default(false)
+  isSeller       Boolean @default(false)
+  legalName      String?
+  gstNumber      String? // ⚠ PRIVATE
+  address        Json? // ⚠ PRIVATE
+  phone          String? // ⚠ PRIVATE
+  email          String? // ⚠ PRIVATE
+  contactName    String? // ⚠ PRIVATE
+  notes          String? // ⚠ PRIVATE
+  logoUrl        String?
+  website        String?
+  status         String  @default("ACTIVE")
+  isSingleton    Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sellingProducts Product[] @relation("SellerCompany")
+  sourcingProducts Product[] @relation("SupplierCompany")
+  manufacturingProducts Product[] @relation("ManufacturerCompany")
+
+  @@map("companies")
+}
+
+// ─────────────────────────────────────────────
+// CATALOGUE STRUCTURE
+// ─────────────────────────────────────────────
+
+model Category {
+  id           String  @id @default(cuid())
+  name         String
+  slug         String  @unique
+  description  String?
+  imageUrl     String?
+  cloudinaryId String?
+
+  // Self-relation for subcategories (e.g. Solvents → Chlorinated Solvents)
+  parentId String?
+  parent   Category?  @relation("SubCategories", fields: [parentId], references: [id])
+  children Category[] @relation("SubCategories")
+
+  products Product[]
+
+  sortOrder Int     @default(0)
+  isActive  Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([parentId])
+  @@index([isActive])
+  @@map("categories")
+}
+
+model Brand {
+  id           String  @id @default(cuid())
+  name         String  @unique
+  slug         String  @unique
+  logoUrl      String?
+  cloudinaryId String?
+  description  String?
+  website      String?
+  isActive     Boolean @default(true)
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([isActive])
+  @@map("brands")
+}
+
+model Manufacturer {
+  id      String  @id @default(cuid())
+  name    String  @unique
+  country String?
+  website String?
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("manufacturers")
+}
+
+/// ⚠ INTERNAL ONLY — Supplier is who we BUY from.
+/// Must NEVER appear in any public-facing API response.
+model Supplier {
+  id           String  @id @default(cuid())
+  name         String  @unique // ⚠ PRIVATE
+  contactName  String? // ⚠ PRIVATE
+  contactPhone String? // ⚠ PRIVATE
+  contactEmail String? // ⚠ PRIVATE
+  notes        String? // ⚠ PRIVATE
+
+  products Product[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("suppliers")
+}
+
+// ─────────────────────────────────────────────
+// PRODUCTS
+// ─────────────────────────────────────────────
+
+model Product {
+  id          String        @id @default(cuid())
+  name        String
+  slug        String        @unique
+  description String?
+  casNumber   String? // CAS Registry Number — public
+  status      ProductStatus @default(DRAFT)
+  pricingMode PricingMode @default(REQUEST_QUOTE)
+  basePrice   Decimal? @db.Decimal(12, 4)
+  taxPercent  Decimal? @db.Decimal(5, 2)
+  trackStock  Boolean @default(false)
+  stockQuantity Int?
+  minOrderQuantity Int @default(1)
+  safetyHandling String?
+  internalNotes String? // ⚠ PRIVATE
+  deletedAt DateTime?
+
+  // Public catalogue relations
+  categoryId     String?
+  category       Category?     @relation(fields: [categoryId], references: [id])
+  brandId        String?
+  brand          Brand?        @relation(fields: [brandId], references: [id])
+  manufacturerId String?
+  manufacturer   Manufacturer? @relation(fields: [manufacturerId], references: [id])
+  manufacturerCompanyId String?
+  manufacturerCompany Company? @relation("ManufacturerCompany", fields: [manufacturerCompanyId], references: [id], onDelete: SetNull)
+  sellerCompanyId String?
+  sellerCompany Company? @relation("SellerCompany", fields: [sellerCompanyId], references: [id], onDelete: SetNull)
+  supplierCompanyId String? // ⚠ PRIVATE
+  supplierCompany Company? @relation("SupplierCompany", fields: [supplierCompanyId], references: [id], onDelete: SetNull)
+
+  // ⚠ PRIVATE — strip from ALL public/customer serialisers
+  supplierId       String?
+  supplier         Supplier? @relation(fields: [supplierId], references: [id])
+  sourceType       SourceType @default(OUR_COMPANY) // ⚠ PRIVATE
+  purchasePriceRef Decimal?   @db.Decimal(12, 4) // ⚠ PRIVATE — reference purchase cost
+
+  // Flexible product-specific specs (public)
+  // e.g. { "molecularFormula": "CH3OH", "boilingPoint": "64.7°C", "purity": "≥99.8%" }
+  specifications Json @default("{}")
+
+  // Sub-relations
+  variants   ProductVariant[]
+  images     ProductImage[]
+  documents  ProductDocument[]
+
+  // SEO / search
+  tags      String[]
+  metaTitle String?
+  metaDesc  String?
+
+  sortOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([status])
+  @@index([status, categoryId])
+  @@map("products")
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  sku        String @unique
+  label      String // e.g. "500 ml Bottle", "25 kg Drum"
+  name       String?
+  packageSize String?
+  packageUnit String?
+  weightVolume Decimal? @db.Decimal(12, 4)
+  weightVolumeUnit String?
+  pricingMode PricingMode @default(FIXED)
+  stockQuantity Int?
+  imageUrl String?
+  // e.g. { "purity": "99.5%", "grade": "Industrial", "packSize": "25 kg" }
+  attributes Json
+
+  // null = "Request a Quote" (displayed instead of price)
+  price    Decimal? @db.Decimal(12, 4)
+  currency String   @default("INR")
+  unit     String // e.g. "litre", "kg", "drum", "piece"
+
+  // ⚠ PRIVATE — our procurement cost per unit
+  purchaseCost Decimal? @db.Decimal(12, 4) // ⚠ PRIVATE
+
+  // Minimum Order Quantity — 0 means no minimum
+  moq Int @default(1)
+
+  stockStatus StockStatus @default(ON_REQUEST)
+  isActive    Boolean     @default(true)
+  sortOrder   Int         @default(0)
+
+  images     ProductImage[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([productId])
+  @@index([sku])
+  @@index([isActive])
+  @@map("product_variants")
+}
+
+model ProductImage {
+  id           String  @id @default(cuid())
+  cloudinaryId String // Cloudinary public_id for deletion/transformation
+  url          String // Cloudinary secure_url
+  altText      String?
+  isPrimary    Boolean @default(false)
+
+  // Belongs to a product OR a specific variant (at least one must be set at app layer)
+  productId String?
+  product   Product?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  sortOrder Int @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@index([variantId])
+  @@map("product_images")
+}
+
+model ProductDocument {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  type         DocumentType
+  cloudinaryId String // Cloudinary public_id
+  url          String // Cloudinary secure_url
+  fileName     String // Display name shown to customer
+  fileSize     Int? // bytes
+  isPublic     Boolean @default(true) // false = admin-only download
+  fileType     String @default("application/pdf")
+
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_documents")
+}
+
+// ─────────────────────────────────────────────
+// ORDERS
+// ─────────────────────────────────────────────
+
+model OrderRequest {
+  id     String      @id @default(cuid())
+  orderNumber String @unique
+  userId String
+  user   User        @relation(fields: [userId], references: [id])
+  status OrderStatus @default(PENDING)
+
+  // Address snapshot taken at order time — not a FK to avoid sync issues
+  shippingAddress Json // { name, phone, line1, line2, city, state, pincode }
+  notes           String? // customer-provided notes
+  deliveryState   String?
+
+  // ⚠ PRIVATE — internal admin remarks
+  adminNotes String? // ⚠ PRIVATE
+
+  // Idempotency — prevents duplicate submissions on network retry
+  // Client must supply UUID v4 per cart session
+  idempotencyKey String? @unique
+
+  // Financials
+  estimatedTotal Decimal? @db.Decimal(12, 4) // computed from snapshots; null if any item is RFQ
+  confirmedTotal Decimal? @db.Decimal(12, 4) // set by admin on CONFIRMED transition
+  currency       String   @default("INR")
+
+  // Shipping
+  shippingRuleId String?
+  shippingRule   ShippingRule? @relation(fields: [shippingRuleId], references: [id])
+  shippingCost   Decimal?      @db.Decimal(12, 4)
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  notificationLogs NotificationLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("order_requests")
+}
+
+/// Snapshot columns are MANDATORY — preserve order history even if the product
+/// is later edited or deleted (business rule).
+model OrderItem {
+  id             String       @id @default(cuid())
+  orderRequestId String
+  orderRequest   OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
+
+  // Live FK — SetNull if variant deleted (do NOT cascade delete)
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  quantity Int
+
+  // ─── SNAPSHOTS (immutable after creation) ───────────────────────────────
+  snapshotProductName  String
+  snapshotVariantSku   String
+  snapshotVariantLabel String
+  snapshotPackaging    String?
+  snapshotBrand        String?
+  snapshotManufacturer String?
+  snapshotSeller       String?
+  snapshotSource       Json? // Admin only: supplier/source snapshot
+  snapshotPrice        Decimal? @db.Decimal(12, 4) // null = was "Request a Quote"
+  snapshotCurrency     String   @default("INR")
+  snapshotUnit         String
+  snapshotAttributes   Json // full attributes JSON at time of order
+
+  // quantity × snapshotPrice; null if RFQ
+  lineTotal Decimal? @db.Decimal(12, 4)
+
+  createdAt DateTime @default(now())
+
+  @@index([orderRequestId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id             String       @id @default(cuid())
+  orderRequestId String
+  orderRequest   OrderRequest @relation(fields: [orderRequestId], references: [id], onDelete: Cascade)
+
+  fromStatus OrderStatus?
+  toStatus   OrderStatus
+  changedBy  String? // admin userId or "SYSTEM"
+  note       String? // reason / message optionally shown to customer
+
+  createdAt DateTime @default(now())
+
+  @@index([orderRequestId])
+  @@map("order_status_history")
+}
+
+// ─────────────────────────────────────────────
+// SHIPPING
+// ─────────────────────────────────────────────
+
+model ShippingRule {
+  id          String  @id @default(cuid())
+  name        String  @unique // e.g. "Maharashtra Flat Rate"
+  description String?
+  isActive    Boolean @default(true)
+
+  // Matching criteria — null means "match all"
+  stateCode     String? // ISO state code e.g. "MH", "GJ" — null = all India
+  minOrderValue Decimal? @db.Decimal(12, 4)
+  maxOrderValue Decimal? @db.Decimal(12, 4)
+  minWeightKg   Decimal? @db.Decimal(10, 3)
+  maxWeightKg   Decimal? @db.Decimal(10, 3)
+
+  // Pricing
+  basePrice   Decimal  @db.Decimal(12, 4) @default(0)
+  pricePerKg  Decimal? @db.Decimal(12, 4) // variable-rate component
+  isFreeAbove Decimal? @db.Decimal(12, 4) // free shipping if order ≥ this amount
+
+  // Rules evaluated in ascending sortOrder — first match wins
+  sortOrder Int @default(0)
+
+  orders OrderRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("shipping_rules")
+}
+
+// ─────────────────────────────────────────────
+// BLOG
+// ─────────────────────────────────────────────
+
+model BlogPost {
+  id            String  @id @default(cuid())
+  title         String
+  slug          String  @unique
+  excerpt       String?
+  category      String?
+  content       String // rich text / HTML stored as-is
+  coverImageUrl String?
+  cloudinaryId  String?
+
+  status      BlogStatus @default(DRAFT)
+  publishedAt DateTime?
+  authorName  String? // display name (no FK — simpler for single-admin)
+
+  tags String[]
+
+  metaTitle String?
+  metaDesc  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([slug])
+  @@index([status])
+  @@index([publishedAt])
+  @@map("blog_posts")
+}
+
+// ─────────────────────────────────────────────
+// HOMEPAGE CMS
+// ─────────────────────────────────────────────
+
+model HomepageSection {
+  id       String      @id @default(cuid())
+  type     SectionType
+  title    String?
+  subtitle String?
+
+  // Flexible content — shape depends on SectionType:
+  // HERO_BANNER:          { imageUrl, cloudinaryId, ctaLabel, ctaUrl, bgColor }
+  // FEATURED_PRODUCTS:    { productIds: ["cuid1", ...] }
+  // FEATURED_CATEGORIES:  { categoryIds: ["cuid1", ...] }
+  // ANNOUNCEMENT:         { text, bgColor, textColor, link }
+  // TESTIMONIALS:         { items: [{ name, company, quote }] }
+  // CUSTOM_HTML:          { html }
+  content Json @default("{}")
+
+  isActive  Boolean @default(true)
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive, sortOrder])
+  @@map("homepage_sections")
+}
+
+// ─────────────────────────────────────────────
+// SITE SETTINGS (key-value store)
+// ─────────────────────────────────────────────
+
+model SiteSetting {
+  id  String @id @default(cuid())
+  key String @unique // e.g. "theme.primaryColor", "catalogue.showManufacturer"
+
+  // Typed value — can be string / number / boolean / object / array
+  value Json
+
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@map("site_settings")
+}
+
+model ContactEnquiry {
+  id        String   @id @default(cuid())
+  name      String
+  company   String?
+  email     String
+  phone     String?
+  subject   String?
+  message   String
+  status    String   @default("NEW")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@map("contact_enquiries")
+}
+
+// ─────────────────────────────────────────────
+// NOTIFICATIONS
+// ─────────────────────────────────────────────
+
+model NotificationLog {
+  id     String @id @default(cuid())
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  channel    NotifyChannel
+  status     NotifyStatus  @default(PENDING)
+  recipient  String // email address or phone number
+  subject    String? // email subject line
+  templateId String? // internal template name e.g. "ORDER_CONFIRMED"
+  body       String? // rendered body (may be truncated for storage)
+  error      String? // error message / stack if FAILED
+
+  // Context references
+  relatedEntity   String? // e.g. "OrderRequest"
+  relatedEntityId String? // the cuid of the related record
+  orderRequestId String?
+  orderRequest OrderRequest? @relation(fields: [orderRequestId], references: [id], onDelete: SetNull)
+
+  sentAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
+  @@index([relatedEntity, relatedEntityId])
+  @@index([orderRequestId])
+  @@map("notification_logs")
+}
+
+// ─────────────────────────────────────────────
+// AUDIT LOG
+// ─────────────────────────────────────────────
+
+model AuditLog {
+  id     String @id @default(cuid())
+  userId String?
+  user   User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  action   String // e.g. "CREATE_PRODUCT", "UPDATE_ORDER_STATUS"
+  entity   String // e.g. "Product", "OrderRequest"
+  entityId String // cuid of the affected record
+  before   Json? // state before change — PRIVATE fields stripped before storing
+  after    Json? // state after change  — PRIVATE fields stripped before storing
+
+  createdAt DateTime @default(now())
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

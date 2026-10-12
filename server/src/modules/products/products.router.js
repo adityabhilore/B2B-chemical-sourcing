@@ -1,0 +1,73 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../../lib/prisma.js';
+import { authenticate } from '../../middleware/authenticate.js';
+import { requireAdmin } from '../../middleware/authorise.js';
+import { validate } from '../../middleware/validate.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
+import { badRequest, conflict, notFound } from '../../utils/AppError.js';
+import { sendSuccess } from '../../utils/apiResponse.js';
+import { parsePagination, buildMeta } from '../../utils/pagination.js';
+import { imageUpload, documentUpload } from '../../lib/multer.js';
+import { uploadBuffer } from '../../lib/cloudinary.js';
+import { toPublicProductDTO, toPublicProductListDTO } from '../../utils/productDto.js';
+
+const router = Router();
+const asset = z.object({ cloudinaryId:z.string().min(1),url:z.string().url(),altText:z.string().optional().nullable(),isPrimary:z.boolean().optional() });
+const optionalId=z.preprocess(value=>value===''?null:value,z.string().nullable().optional());
+const optionalDecimal=z.preprocess(value=>value===''||value==null?null:Number(value),z.number().finite().nonnegative().nullable());
+const optionalInteger=z.preprocess(value=>value===''||value==null?null:Number(value),z.number().int().nonnegative().nullable());
+const optionalTax=z.preprocess(value=>value===''||value==null?null:Number(value),z.number().min(0).max(100).nullable());
+const variant = z.object({ id:z.string().optional(),sku:z.string().trim().min(1),name:z.string().trim().min(1),label:z.string().trim().min(1),packageSize:z.string().optional().nullable(),packageUnit:z.string().optional().nullable(),weightVolume:optionalDecimal,weightVolumeUnit:z.string().optional().nullable(),imageUrl:z.string().url().optional().or(z.literal('')).nullable(),pricingMode:z.enum(['FIXED','REQUEST_QUOTE']),price:optionalDecimal,currency:z.string().default('INR'),unit:z.string().default('piece'),moq:z.coerce.number().int().min(1).default(1),stockStatus:z.enum(['IN_STOCK','LOW_STOCK','OUT_OF_STOCK','ON_REQUEST']).default('ON_REQUEST'),stockQuantity:optionalInteger,isActive:z.boolean().default(true),attributes:z.any().optional().default({}) });
+const documentInput=z.object({type:z.enum(['SDS','TDS','COA','OTHER']),cloudinaryId:z.string().min(1),url:z.string().url(),fileName:z.string().min(1),fileSize:z.number().int().nonnegative().optional().nullable(),isPublic:z.boolean().default(true)});
+const statusInput=z.object({status:z.enum(['ACTIVE','DRAFT','ARCHIVED'])});
+const documentTypeInput=z.object({type:z.enum(['SDS','TDS','COA','OTHER'])});
+const productInput=z.object({name:z.string().trim().min(1).max(200),slug:z.string().trim().min(1).max(220),description:z.string().optional().nullable(),casNumber:z.string().optional().nullable(),status:z.enum(['ACTIVE','DRAFT','ARCHIVED']),categoryId:optionalId,brandId:optionalId,manufacturerId:optionalId,manufacturerCompanyId:optionalId,sellerCompanyId:optionalId,supplierCompanyId:optionalId,sourceType:z.enum(['OUR_COMPANY','OTHER_COMPANY']),pricingMode:z.enum(['FIXED','REQUEST_QUOTE']),basePrice:optionalDecimal,taxPercent:optionalTax,trackStock:z.boolean(),stockQuantity:optionalInteger,minOrderQuantity:z.coerce.number().int().min(1),safetyHandling:z.string().optional().nullable(),internalNotes:z.string().optional().nullable(),specifications:z.array(z.object({key:z.string().trim().min(1),value:z.string(),unit:z.string().optional().default('')})).default([]),images:z.array(asset).default([]),documents:z.array(documentInput).default([]),variants:z.array(variant).min(1,'Add at least one variant').default([])}).superRefine((data,ctx)=>{if(data.status==='ACTIVE'&&!data.variants.some(item=>item.isActive))ctx.addIssue({code:z.ZodIssueCode.custom,path:['variants'],message:'A published product needs at least one active variant'});if(data.sourceType==='OTHER_COMPANY'&&!data.supplierCompanyId)ctx.addIssue({code:z.ZodIssueCode.custom,path:['supplierCompanyId'],message:'Select the supplier/source company for an external product'});});
+const publicInclude={category:{select:{id:true,name:true,slug:true,parentId:true,parent:{select:{id:true,name:true,slug:true}}}},brand:{select:{id:true,name:true,slug:true,logoUrl:true}},manufacturer:{select:{id:true,name:true,country:true,website:true}},manufacturerCompany:{select:{id:true,name:true,logoUrl:true,website:true}},sellerCompany:{select:{id:true,name:true,logoUrl:true,website:true}},images:{select:{id:true,url:true,altText:true,isPrimary:true,sortOrder:true},orderBy:{sortOrder:'asc'}},documents:{where:{isPublic:true},select:{id:true,type:true,url:true,fileName:true,fileSize:true,isPublic:true}},variants:{where:{isActive:true},select:{id:true,sku:true,name:true,label:true,packageSize:true,packageUnit:true,weightVolume:true,weightVolumeUnit:true,imageUrl:true,attributes:true,price:true,currency:true,unit:true,moq:true,stockStatus:true,stockQuantity:true,pricingMode:true,isActive:true}}};
+const adminInclude={category:true,brand:true,manufacturer:true,manufacturerCompany:true,sellerCompany:true,supplierCompany:true,supplier:true,images:true,documents:true,variants:{include:{images:true}}};
+const imageError=(upload)=> (req,res,next)=>upload(req,res,err=>{if(err)return next(err);next();});
+const validRasterImage=(file)=>{
+ const bytes=file.buffer;
+ if(file.mimetype==='image/jpeg')return bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff;
+ if(file.mimetype==='image/png')return bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+ if(file.mimetype==='image/webp')return bytes.subarray(0,4).toString()==='RIFF'&&bytes.subarray(8,12).toString()==='WEBP';
+ return false;
+};
+
+// Public responses are built from a relation allowlist, then mapped through productDto.js.
+router.get('/public',asyncHandler(async(req,res)=>{
+ const {skip,take,page,limit}=parsePagination(req.query);const search=String(req.query.search||'').trim();const and=[];if(search)and.push({OR:[{name:{contains:search,mode:'insensitive'}},{description:{contains:search,mode:'insensitive'}},{casNumber:{contains:search,mode:'insensitive'}}]});if(req.query.manufacturer)and.push({OR:[{manufacturerId:String(req.query.manufacturer)},{manufacturerCompanyId:String(req.query.manufacturer)}]});const where={status:'ACTIVE',deletedAt:null,...(and.length?{AND:and}:{}),...(req.query.category?{category:{slug:String(req.query.category)}}:{}),...(req.query.brand?{brand:{slug:String(req.query.brand)}}:{})};
+ const [rows,total]=await Promise.all([prisma.product.findMany({where,skip,take,orderBy:[{sortOrder:'asc'},{name:'asc'}],include:publicInclude}),prisma.product.count({where})]);sendSuccess(res,{items:rows.map(toPublicProductListDTO),meta:buildMeta({page,limit,total})});
+}));
+router.get('/public/manufacturers',asyncHandler(async(_req,res)=>{const [legacy,companies]=await Promise.all([prisma.manufacturer.findMany({select:{id:true,name:true,country:true},orderBy:{name:'asc'}}),prisma.company.findMany({where:{status:'ACTIVE',isManufacturer:true},select:{id:true,name:true},orderBy:{name:'asc'}})]);sendSuccess(res,[...legacy,...companies]);}));
+router.get('/public/:slug',asyncHandler(async(req,res)=>{const item=await prisma.product.findFirst({where:{slug:req.params.slug,status:'ACTIVE',deletedAt:null},include:publicInclude});if(!item)throw notFound('Product not found');const related=await prisma.product.findMany({where:{status:'ACTIVE',deletedAt:null,categoryId:item.categoryId,id:{not:item.id}},take:4,orderBy:{name:'asc'},include:publicInclude});sendSuccess(res,{product:toPublicProductDTO(item),related:related.map(toPublicProductListDTO)});}));
+
+router.use('/admin',authenticate,requireAdmin);
+router.get('/admin/options',asyncHandler(async(_req,res)=>{const [categories,brands,legacyManufacturers,companies]=await Promise.all([prisma.category.findMany({select:{id:true,name:true,parentId:true},orderBy:{name:'asc'}}),prisma.brand.findMany({select:{id:true,name:true},orderBy:{name:'asc'}}),prisma.manufacturer.findMany({select:{id:true,name:true},orderBy:{name:'asc'}}),prisma.company.findMany({where:{status:'ACTIVE'},select:{id:true,name:true,isManufacturer:true,isSeller:true,isSupplier:true},orderBy:{name:'asc'}})]);const manufacturers=[...legacyManufacturers,...companies.filter(c=>c.isManufacturer).map(({id,name})=>({id,name}))];sendSuccess(res,{categories,brands,manufacturers,companies});}));
+router.get('/admin',asyncHandler(async(req,res)=>{const {skip,take,page,limit}=parsePagination(req.query);const search=String(req.query.search||'').trim();const where={deletedAt:null,...(search?{OR:[{name:{contains:search,mode:'insensitive'}},{slug:{contains:search,mode:'insensitive'}},{casNumber:{contains:search,mode:'insensitive'}}]}:{}),...(req.query.category?{categoryId:String(req.query.category)}:{}),...(req.query.brand?{brandId:String(req.query.brand)}:{}),...(req.query.source?{sourceType:String(req.query.source)}:{}),...(req.query.status?{status:String(req.query.status)}:{})};const [items,total]=await Promise.all([prisma.product.findMany({where,skip,take,orderBy:{updatedAt:'desc'},include:adminInclude}),prisma.product.count({where})]);sendSuccess(res,{items,meta:buildMeta({page,limit,total})});}));
+router.get('/admin/:id',asyncHandler(async(req,res)=>{const item=await prisma.product.findFirst({where:{id:req.params.id,deletedAt:null},include:adminInclude});if(!item)throw notFound('Product not found');sendSuccess(res,item);}));
+
+async function saveProduct(data,id=null){
+ if(data.sellerCompanyId){const seller=await prisma.company.findUnique({where:{id:data.sellerCompanyId},select:{isSeller:true,status:true}});if(!seller||!seller.isSeller||seller.status!=='ACTIVE')throw badRequest('Selected fulfilment company is not an active seller');}
+ if(data.manufacturerCompanyId){const manufacturer=await prisma.company.findUnique({where:{id:data.manufacturerCompanyId},select:{isManufacturer:true,status:true}});if(!manufacturer||!manufacturer.isManufacturer||manufacturer.status!=='ACTIVE')throw badRequest('Selected manufacturer is not an active manufacturer');}
+ if(data.sourceType==='OTHER_COMPANY'){const source=await prisma.company.findUnique({where:{id:data.supplierCompanyId},select:{isSupplier:true,status:true}});if(!source||!source.isSupplier||source.status!=='ACTIVE')throw badRequest('Selected source company is not an active supplier');}else data.supplierCompanyId=null;
+ const {images,documents,variants,...fields}=data;
+ const productData={...fields,basePrice:fields.pricingMode==='FIXED'?fields.basePrice??null:null,stockQuantity:fields.trackStock?fields.stockQuantity??0:null};
+ return prisma.$transaction(async(tx)=>{
+  const product=id?await tx.product.update({where:{id},data:productData}):await tx.product.create({data:productData});
+  const existing=await tx.productVariant.findMany({where:{productId:product.id},select:{id:true}});const submittedIds=variants.filter(v=>v.id).map(v=>v.id);
+  const stale=existing.filter(v=>!submittedIds.includes(v.id)).map(v=>v.id);if(stale.length)await tx.productVariant.deleteMany({where:{id:{in:stale},productId:product.id}});
+  for(const item of variants){const {id:variantId,...value}=item;const variantData={...value,price:value.pricingMode==='FIXED'?value.price??null:null,weightVolume:value.weightVolume??null,stockQuantity:value.stockQuantity??null,attributes:value.attributes||{}};if(variantId&&existing.some(v=>v.id===variantId))await tx.productVariant.update({where:{id:variantId},data:variantData});else await tx.productVariant.create({data:{...variantData,productId:product.id}});}
+  await tx.productImage.deleteMany({where:{productId:product.id}});if(images.length)await tx.productImage.createMany({data:images.map((image,index)=>({productId:product.id,cloudinaryId:image.cloudinaryId,url:image.url,altText:image.altText||null,isPrimary:image.isPrimary??index===0,sortOrder:index}))});
+  await tx.productDocument.deleteMany({where:{productId:product.id}});if(documents.length)await tx.productDocument.createMany({data:documents.map(doc=>({productId:product.id,...doc,fileSize:doc.fileSize??null}))});
+  return tx.product.findUnique({where:{id:product.id},include:adminInclude});
+ });
+}
+router.post('/admin',validate(productInput),asyncHandler(async(req,res)=>{const item=await saveProduct(req.body);sendSuccess(res,item,'Product created',201);}));
+router.patch('/admin/:id',validate(productInput),asyncHandler(async(req,res)=>{if(!await prisma.product.findFirst({where:{id:req.params.id,deletedAt:null}}))throw notFound('Product not found');const item=await saveProduct(req.body,req.params.id);sendSuccess(res,item,'Product updated');}));
+router.patch('/admin/:id/status',validate(statusInput),asyncHandler(async(req,res)=>{const item=await prisma.product.update({where:{id:req.params.id},data:{status:req.body.status}});sendSuccess(res,item,'Publication status updated');}));
+router.delete('/admin/:id',asyncHandler(async(req,res)=>{const product=await prisma.product.findFirst({where:{id:req.params.id,deletedAt:null},include:{variants:{select:{id:true,orderItems:{select:{id:true},take:1}}}}});if(!product)throw notFound('Product not found');const hasOrders=product.variants.some(item=>item.orderItems.length);if(hasOrders)throw conflict('This product has order history and cannot be deleted. Archive it instead.');await prisma.product.update({where:{id:req.params.id},data:{deletedAt:new Date(),status:'ARCHIVED'}});sendSuccess(res,null,'Product archived and removed from the catalogue');}));
+
+router.post('/admin/uploads/images',imageError(imageUpload.array('files',12)),asyncHandler(async(req,res)=>{const uploaded=[];for(const file of req.files||[]){if(!validRasterImage(file))throw badRequest('Image content must be a valid JPEG, PNG, or WebP file');const result=await uploadBuffer(file.buffer,{folder:'chemical-market/products/images',resource_type:'image'});uploaded.push({cloudinaryId:result.publicId,url:result.url,fileName:file.originalname});}sendSuccess(res,uploaded,'Images uploaded');}));
+router.post('/admin/uploads/documents',imageError(documentUpload.array('files',20)),validate(documentTypeInput),asyncHandler(async(req,res)=>{const type=req.body.type;const uploaded=[];for(const file of req.files||[]){if(file.mimetype!=='application/pdf'||file.buffer.subarray(0,5).toString()!=='%PDF-')throw badRequest('Document must be a valid PDF file');const result=await uploadBuffer(file.buffer,{folder:'chemical-market/products/documents',resource_type:'raw',format:'pdf'});uploaded.push({type,cloudinaryId:result.publicId,url:result.url,fileName:file.originalname,fileSize:result.bytes,isPublic:true});}sendSuccess(res,uploaded,'Documents uploaded');}));
+export default router;

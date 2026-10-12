@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment variables – NEVER commit these
+.env
+**/.env
+# Local environment variants (Vite, test tools, and deployment tooling)
+.env.*
+**/.env.*
+# Keep the examples
+!.env.example
+!**/.env.example
+
+# Project documentation stays local and is not published with the source
+/docs/
+
+# Build output
+dist/
+build/
+client/dist/
+
+# Prisma
+server/prisma/migrations/**/*.sql.bak
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/settings.json
+.idea/
+*.suo
+*.user
+
+# Temporary
+*.tmp
+*.temp

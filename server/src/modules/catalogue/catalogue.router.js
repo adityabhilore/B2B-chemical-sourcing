@@ -1,0 +1,40 @@
+import { Router } from 'express';
+import { z } from 'zod';
+import { prisma } from '../../lib/prisma.js';
+import { authenticate } from '../../middleware/authenticate.js';
+import { requireAdmin } from '../../middleware/authorise.js';
+import { validate } from '../../middleware/validate.js';
+import { asyncHandler } from '../../utils/asyncHandler.js';
+import { badRequest, conflict, notFound } from '../../utils/AppError.js';
+import { sendSuccess } from '../../utils/apiResponse.js';
+import { parsePagination, buildMeta } from '../../utils/pagination.js';
+import { slugify } from '../../utils/slugify.js';
+
+const router = Router();
+const categoryInput = z.object({ name: z.string().trim().min(1).max(120), slug: z.string().trim().optional().or(z.literal('')), description: z.string().max(2000).optional().nullable(), parentId: z.string().optional().nullable(), isActive: z.boolean().optional() });
+const brandInput = z.object({ name: z.string().trim().min(1).max(120), slug: z.string().trim().optional().or(z.literal('')), description: z.string().max(2000).optional().nullable(), logoUrl: z.string().url().optional().or(z.literal('')).nullable(), isActive: z.boolean().optional() });
+const companyInput = z.object({ name: z.string().trim().min(1).max(160), type: z.string().max(80).optional().nullable(), isManufacturer: z.boolean(), isSupplier: z.boolean(), isSeller: z.boolean(), contactName: z.string().max(160).optional().nullable(), phone: z.string().max(40).optional().nullable(), email: z.string().email().optional().or(z.literal('')).nullable(), address: z.any().optional().nullable(), notes: z.string().max(4000).optional().nullable(), logoUrl: z.string().url().optional().or(z.literal('')).nullable(), status: z.enum(['ACTIVE','INACTIVE']) });
+router.get('/public/categories/tree', asyncHandler(async (_req,res) => {
+  const rows = await prisma.category.findMany({ where:{isActive:true}, select:{id:true,name:true,slug:true,description:true,parentId:true}, orderBy:[{sortOrder:'asc'},{name:'asc'}] });
+  const byId = new Map(rows.map(row => [row.id,{...row,children:[]}]));
+  const roots=[]; for (const row of byId.values()) { if(row.parentId && byId.has(row.parentId)) byId.get(row.parentId).children.push(row); else if(!row.parentId) roots.push(row); }
+  sendSuccess(res, roots);
+}));
+router.get('/public/brands', asyncHandler(async (_req,res) => sendSuccess(res, await prisma.brand.findMany({where:{isActive:true},select:{id:true,name:true,slug:true,description:true,logoUrl:true},orderBy:{name:'asc'}}))));
+
+router.use(authenticate,requireAdmin);
+router.get('/admin/categories/tree',asyncHandler(async(_req,res)=>sendSuccess(res,await prisma.category.findMany({select:{id:true,name:true,parentId:true},orderBy:{name:'asc'}}))));
+router.get('/admin/categories', asyncHandler(async(req,res)=>{const {skip,take,page,limit}=parsePagination(req.query);const search=String(req.query.search||'');const active=req.query.status;const where={...(search?{OR:[{name:{contains:search,mode:'insensitive'}},{description:{contains:search,mode:'insensitive'}}]}:{}),...(active==='published'?{isActive:true}:active==='unpublished'?{isActive:false}:{})};const [rows,total]=await Promise.all([prisma.category.findMany({where,skip,take,orderBy:{name:'asc'},include:{parent:{select:{id:true,name:true}}}}),prisma.category.count({where})]);sendSuccess(res,{items:rows,meta:buildMeta({page,limit,total})});}));
+router.post('/admin/categories',validate(categoryInput),asyncHandler(async(req,res)=>{const data=req.body;const slug=slugify(data.slug||data.name);if(!slug)throw badRequest('A valid slug could not be generated');if(data.parentId&&!await prisma.category.findUnique({where:{id:data.parentId}}))throw notFound('Parent category not found');const item=await prisma.category.create({data:{name:data.name,slug,description:data.description||null,parentId:data.parentId||null,isActive:data.isActive??false}});sendSuccess(res,item,'Category created',201);}));
+router.patch('/admin/categories/:id',validate(categoryInput),asyncHandler(async(req,res)=>{const old=await prisma.category.findUnique({where:{id:req.params.id}});if(!old)throw notFound('Category not found');const data=req.body;let parentId=data.parentId||null;if(parentId===old.id)throw badRequest('A category cannot be its own parent');let cursor=parentId;while(cursor){if(cursor===old.id)throw badRequest('This parent would create a circular category relationship');const parent=await prisma.category.findUnique({where:{id:cursor},select:{parentId:true}});cursor=parent?.parentId||null;}const slug=slugify(data.slug||data.name);const item=await prisma.category.update({where:{id:old.id},data:{name:data.name,slug,description:data.description||null,parentId,isActive:data.isActive??old.isActive}});sendSuccess(res,item,'Category updated');}));
+router.delete('/admin/categories/:id',asyncHandler(async(req,res)=>{const [children,products]=await Promise.all([prisma.category.count({where:{parentId:req.params.id}}),prisma.product.count({where:{categoryId:req.params.id}})]);if(children||products)throw conflict(`Cannot delete this category: ${children} child categor${children===1?'y':'ies'} and ${products} product${products===1?' is':'s are'} assigned. Reassign them first.`);await prisma.category.delete({where:{id:req.params.id}});sendSuccess(res,null,'Category deleted');}));
+router.get('/admin/brands',asyncHandler(async(req,res)=>{const {skip,take,page,limit}=parsePagination(req.query);const search=String(req.query.search||'');const active=req.query.status;const where={...(search?{OR:[{name:{contains:search,mode:'insensitive'}},{description:{contains:search,mode:'insensitive'}}]}:{}),...(active==='published'?{isActive:true}:active==='unpublished'?{isActive:false}:{})};const [items,total]=await Promise.all([prisma.brand.findMany({where,skip,take,orderBy:{name:'asc'}}),prisma.brand.count({where})]);sendSuccess(res,{items,meta:buildMeta({page,limit,total})});}));
+router.post('/admin/brands',validate(brandInput),asyncHandler(async(req,res)=>{const d=req.body;const slug=slugify(d.slug||d.name);const item=await prisma.brand.create({data:{name:d.name,slug,description:d.description||null,logoUrl:d.logoUrl||null,isActive:d.isActive??false}});sendSuccess(res,item,'Brand created',201);}));
+router.patch('/admin/brands/:id',validate(brandInput),asyncHandler(async(req,res)=>{if(!await prisma.brand.findUnique({where:{id:req.params.id}}))throw notFound('Brand not found');const d=req.body;const item=await prisma.brand.update({where:{id:req.params.id},data:{name:d.name,slug:slugify(d.slug||d.name),description:d.description||null,logoUrl:d.logoUrl||null,isActive:d.isActive??false}});sendSuccess(res,item,'Brand updated');}));
+router.delete('/admin/brands/:id',asyncHandler(async(req,res)=>{const n=await prisma.product.count({where:{brandId:req.params.id}});if(n)throw conflict(`Cannot delete this brand: ${n} product${n===1?' is':'s are'} assigned. Reassign them first.`);await prisma.brand.delete({where:{id:req.params.id}});sendSuccess(res,null,'Brand deleted');}));
+router.get('/admin/companies',asyncHandler(async(req,res)=>{const {skip,take,page,limit}=parsePagination(req.query);const search=String(req.query.search||'');const where=search?{name:{contains:search,mode:'insensitive'}}:{};const [items,total]=await Promise.all([prisma.company.findMany({where,skip,take,orderBy:{name:'asc'}}),prisma.company.count({where})]);sendSuccess(res,{items,meta:buildMeta({page,limit,total})});}));
+router.post('/admin/companies',validate(companyInput),asyncHandler(async(req,res)=>sendSuccess(res,await prisma.company.create({data:req.body}), 'Company created',201)));
+router.patch('/admin/companies/:id',validate(companyInput),asyncHandler(async(req,res)=>{if(!await prisma.company.findUnique({where:{id:req.params.id}}))throw notFound('Company not found');sendSuccess(res,await prisma.company.update({where:{id:req.params.id},data:req.body}),'Company updated');}));
+router.delete('/admin/companies/:id',asyncHandler(async(req,res)=>{await prisma.company.delete({where:{id:req.params.id}});sendSuccess(res,null,'Company deleted');}));
+export default router;
+
