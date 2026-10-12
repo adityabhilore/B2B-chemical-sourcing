@@ -561,6 +561,10 @@ model ShippingRule {
   name        String  @unique // e.g. "Maharashtra Flat Rate"
   description String?
   isActive    Boolean @default(true)
+  originState String? // Indian state code; null means any origin
+  destinationState String? // Indian state code; null means any destination
+  methodId String?
+  method ShippingMethod? @relation(fields: [methodId], references: [id], onDelete: SetNull)
 
   // Matching criteria — null means "match all"
   stateCode     String? // ISO state code e.g. "MH", "GJ" — null = all India
@@ -584,6 +588,19 @@ model ShippingRule {
 
   @@index([isActive, sortOrder])
   @@map("shipping_rules")
+}
+
+model ShippingMethod {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  rules       ShippingRule[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("shipping_methods")
 }
 
 // ─────────────────────────────────────────────

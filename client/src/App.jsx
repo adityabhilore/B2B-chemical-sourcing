@@ -23,6 +23,8 @@ import { BlogListPage, BlogDetailPage } from './pages/public/BlogPages';
 import { BlogAdminPage, HomepageAdminPage, SiteSettingsPage, EnquiriesPage } from './pages/admin/ContentAdminPages';
 import { OrderRequestPage, MyOrdersPage, OrderDetailPage } from './pages/customer/OrdersPage';
 import { OrdersAdminPage, OrderAdminDetailPage } from './pages/admin/OrdersAdminPage';
+import { CustomersAdminPage, CustomerAdminDetailPage } from './pages/admin/CustomersAdminPage';
+import ShippingAdminPage from './pages/admin/ShippingAdminPage';
 
 // Placeholder pages — implement these in future phases
 const Placeholder = ({ name }) => (
@@ -81,8 +83,9 @@ export default function App() {
             <Route path="/admin/orders/:id" element={<OrderAdminDetailPage />} />
             <Route path="/admin/blog" element={<BlogAdminPage />} />
             <Route path="/admin/blog/new" element={<BlogAdminPage />} />
-            <Route path="/admin/customers" element={<Placeholder name="Admin — Customers" />} />
-            <Route path="/admin/shipping" element={<Placeholder name="Admin — Shipping Rules" />} />
+            <Route path="/admin/customers" element={<CustomersAdminPage />} />
+            <Route path="/admin/customers/:id" element={<CustomerAdminDetailPage />} />
+            <Route path="/admin/shipping" element={<ShippingAdminPage />} />
             <Route path="/admin/settings" element={<SiteSettingsPage />} />
             <Route path="/admin/homepage" element={<HomepageAdminPage />} />
             <Route path="/admin/enquiries" element={<EnquiriesPage />} />

@@ -1,110 +1,11 @@
-// src/pages/admin/DashboardPage.jsx
+import { useEffect,useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Boxes,FolderTree,Tag,Users,ClipboardList,Clock3 } from 'lucide-react';
+import { Area,AreaChart,CartesianGrid,Cell,Pie,PieChart,ResponsiveContainer,Tooltip,XAxis,YAxis } from 'recharts';
 import AdminLayout from '../../components/layout/AdminLayout';
 import { StatCard } from '../../components/ui/Cards';
 import Badge from '../../components/ui/Badge';
-import DataTable from '../../components/ui/DataTable';
-import { formatCurrency, formatDate } from '../../lib/utils';
+import { api } from '../../lib/api';
 
-// lucide-react icons
-import { useState } from 'react';
-
-// PLACEHOLDER icons as simple SVG until lucide is confirmed working
-const IconBox = ({ d }) => (
-  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d={d} />
-  </svg>
-);
-const PackageIcon = () => <IconBox d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />;
-const CartIcon = () => <IconBox d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z" />;
-const UsersIcon = () => <IconBox d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />;
-const TrendIcon = () => <IconBox d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />;
-
-// [PLACEHOLDER] — Replace with real API data
-const STATS = [
-  { label: 'Total Products', value: '[--]', sub: '[PLACEHOLDER] active in catalogue', icon: PackageIcon },
-  { label: 'Orders This Month', value: '[--]', sub: '[PLACEHOLDER] vs last month', icon: CartIcon, trend: '[PLACEHOLDER] +0%', trendUp: true },
-  { label: 'Registered Customers', value: '[--]', sub: '[PLACEHOLDER] approved', icon: UsersIcon },
-  { label: 'Revenue This Month', value: '[--]', sub: '[PLACEHOLDER] confirmed orders', icon: TrendIcon, trend: '[PLACEHOLDER] +0%', trendUp: true },
-];
-
-// [PLACEHOLDER] — Replace with real order data from API
-const PLACEHOLDER_ORDERS = [
-  { id: 'ORD-001', customerName: '[PLACEHOLDER] Acme Chemicals Pvt Ltd', status: 'PENDING',    items: 3, total: null,   createdAt: new Date().toISOString() },
-  { id: 'ORD-002', customerName: '[PLACEHOLDER] Horizon Laboratories',    status: 'CONFIRMED', items: 1, total: 45000,  createdAt: new Date().toISOString() },
-  { id: 'ORD-003', customerName: '[PLACEHOLDER] IndoPharma Solutions',    status: 'PROCESSING',items: 5, total: 128000, createdAt: new Date().toISOString() },
-  { id: 'ORD-004', customerName: '[PLACEHOLDER] SynTech Industries',      status: 'SHIPPED',   items: 2, total: 67500,  createdAt: new Date().toISOString() },
-  { id: 'ORD-005', customerName: '[PLACEHOLDER] Metro Chemical Works',    status: 'DELIVERED', items: 4, total: 95000,  createdAt: new Date().toISOString() },
-];
-
-const ORDER_COLUMNS = [
-  {
-    key: 'id', label: 'Order ID',
-    render: v => <span className="font-mono text-xs font-semibold text-navy-700 bg-navy-50 px-2 py-0.5 rounded">{v}</span>,
-  },
-  { key: 'customerName', label: 'Customer' },
-  {
-    key: 'items', label: 'Items',
-    render: v => <span className="text-slate-500 text-xs">{v} item{v !== 1 ? 's' : ''}</span>,
-  },
-  {
-    key: 'total', label: 'Total',
-    render: v => <span className="font-semibold text-slate-800">{formatCurrency(v)}</span>,
-  },
-  {
-    key: 'status', label: 'Status',
-    render: v => <Badge status={v} dot />,
-  },
-  {
-    key: 'createdAt', label: 'Date',
-    render: v => <span className="text-slate-500 text-xs">{formatDate(v)}</span>,
-  },
-];
-
-export default function DashboardPage() {
-  const [search, setSearch] = useState('');
-
-  return (
-    <AdminLayout
-      title="Dashboard"
-      breadcrumbs={[{ label: 'Admin' }, { label: 'Dashboard' }]}
-    >
-      <div className="flex flex-col gap-8">
-
-        {/* Stat Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5">
-          {STATS.map(s => (
-            <StatCard key={s.label} {...s} />
-          ))}
-        </div>
-
-        {/* Recent Orders */}
-        <div className="card">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-900">Recent Orders</h2>
-            <a href="/admin/orders" className="text-sm text-navy-600 hover:text-navy-700 font-medium no-underline">
-              View all →
-            </a>
-          </div>
-          <div className="p-4">
-            <DataTable
-              columns={ORDER_COLUMNS}
-              data={PLACEHOLDER_ORDERS}
-              searchValue={search}
-              onSearch={setSearch}
-              searchPlaceholder="Search orders..."
-              rowActions={row => (
-                <a
-                  href={`/admin/orders/${row.id}`}
-                  className="btn btn-ghost btn-xs text-navy-600 no-underline"
-                >
-                  View
-                </a>
-              )}
-            />
-          </div>
-        </div>
-
-      </div>
-    </AdminLayout>
-  );
-}
+const colors=['#2563eb','#14b8a6','#f59e0b','#8b5cf6','#ef4444','#64748b'];
+export default function DashboardPage(){const [data,setData]=useState(null),[error,setError]=useState('');useEffect(()=>{api.get('/admin/dashboard').then(r=>setData(r.data.data)).catch(e=>setError(e.response?.data?.message||'Dashboard data could not be loaded.'));},[]);const stats=data?.stats||{};return <AdminLayout title="Dashboard" breadcrumbs={[{label:'Admin'},{label:'Dashboard'}]}><div className="space-y-6">{error&&<p className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</p>}<div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">{[["Products",stats.products,Boxes],["Categories",stats.categories,FolderTree],["Brands",stats.brands,Tag],["Customers",stats.customers,Users],["Orders",stats.orders,ClipboardList],["Pending orders",stats.pendingOrders,Clock3]].map(([label,value,Icon])=><StatCard key={label} label={label} value={value??'—'} sub="Current database total" icon={Icon}/>)}</div><div className="grid gap-5 xl:grid-cols-[1.6fr_1fr]"><section className="card p-5"><div className="mb-4"><h2 className="font-semibold text-slate-900">Order activity</h2><p className="text-xs text-slate-500">Orders created over the last 30 days</p></div><div className="h-72">{data&&<ResponsiveContainer width="100%" height="100%"><AreaChart data={data.ordersOverTime}><defs><linearGradient id="ordersFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2563eb" stopOpacity={0.24}/><stop offset="95%" stopColor="#2563eb" stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false}/><XAxis dataKey="date" tickFormatter={v=>v.slice(5)} tick={{fontSize:11}} minTickGap={24}/><YAxis allowDecimals={false} tick={{fontSize:11}}/><Tooltip labelFormatter={v=>new Date(`${v}T00:00:00`).toLocaleDateString()}/><Area type="monotone" dataKey="orders" stroke="#2563eb" fill="url(#ordersFill)" strokeWidth={2}/></AreaChart></ResponsiveContainer>}</div></section><section className="card p-5"><h2 className="font-semibold text-slate-900">Order status</h2><p className="text-xs text-slate-500">All order requests</p><div className="h-64">{data&&<ResponsiveContainer width="100%" height="100%"><PieChart><Pie data={data.statusSummary} dataKey="count" nameKey="status" innerRadius={58} outerRadius={88} paddingAngle={3}>{data.statusSummary.map((entry,i)=><Cell key={entry.status} fill={colors[i%colors.length]}/>)}</Pie><Tooltip/></PieChart></ResponsiveContainer>}</div><div className="flex flex-wrap gap-x-4 gap-y-2">{data?.statusSummary.map((s,i)=><span key={s.status} className="flex items-center gap-1.5 text-xs text-slate-600"><i className="h-2 w-2 rounded-full" style={{backgroundColor:colors[i%colors.length]}}/>{s.status}: {s.count}</span>)}</div></section></div><section className="card overflow-hidden"><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 className="font-semibold text-slate-900">Recent orders</h2><p className="text-xs text-slate-500">Latest requests in the database</p></div><Link className="text-sm font-medium text-navy-700 no-underline" to="/admin/orders">View all →</Link></div><div className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Order ID','Customer','Items','Status','Date',''].map(x=><th key={x} className="px-5 py-3">{x}</th>)}</tr></thead><tbody>{data?.recentOrders.map(o=><tr key={o.id} className="border-t"><td className="px-5 py-3 font-semibold"><Link to={`/admin/orders/${o.id}`} className="text-navy-700">{o.orderNumber}</Link></td><td className="px-5 py-3">{o.customerName}</td><td className="px-5 py-3">{o.items}</td><td className="px-5 py-3"><Badge status={o.status} dot/></td><td className="px-5 py-3 text-slate-500">{new Date(o.createdAt).toLocaleDateString()}</td><td className="px-5 py-3"><Link to={`/admin/orders/${o.id}`}>View</Link></td></tr>)}</tbody></table>{data&&data.recentOrders.length===0&&<p className="p-6 text-sm text-slate-500">No order requests yet.</p>}{!data&&!error&&<p className="p-6 text-sm text-slate-500">Loading dashboard data…</p>}</div></section></div></AdminLayout>;}

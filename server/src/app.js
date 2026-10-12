@@ -13,6 +13,7 @@ import catalogueRouter from './modules/catalogue/catalogue.router.js';
 import productsRouter from './modules/products/products.router.js';
 import contentRouter from './modules/content/content.router.js';
 import ordersRouter from './modules/orders/orders.router.js';
+import shippingRouter from './modules/shipping/shipping.router.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { successResponse, errorResponse } from './utils/apiResponse.js';
@@ -45,6 +46,7 @@ app.use('/api/catalogue', catalogueRouter);
 app.use('/api/products', productsRouter);
 app.use('/api/content', contentRouter);
 app.use('/api/orders', ordersRouter);
+app.use('/api/shipping', shippingRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);
