@@ -193,6 +193,7 @@ model PasswordResetToken {
 
 model Company {
   id             String  @id @default(cuid())
+  companyNumber  Int     @unique @default(autoincrement())
   name           String
   type            String?
   isManufacturer Boolean @default(false)
@@ -225,6 +226,7 @@ model Company {
 
 model Category {
   id           String  @id @default(cuid())
+  categoryNumber Int    @unique @default(autoincrement())
   name         String
   slug         String  @unique
   description  String?
@@ -252,6 +254,7 @@ model Category {
 
 model Brand {
   id           String  @id @default(cuid())
+  brandNumber  Int     @unique @default(autoincrement())
   name         String  @unique
   slug         String  @unique
   logoUrl      String?
@@ -308,6 +311,7 @@ model Supplier {
 
 model Product {
   id          String        @id @default(cuid())
+  productNumber Int         @unique @default(autoincrement())
   name        String
   slug        String        @unique
   description String?

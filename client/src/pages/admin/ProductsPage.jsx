@@ -17,7 +17,7 @@ export default function ProductsPage(){
  const publish=async row=>{try{await api.patch(`/products/admin/${row.id}/status`,{status:row.status==='ACTIVE'?'DRAFT':'ACTIVE'});toast.success(row.status==='ACTIVE'?'Product unpublished.':'Product published.');load();}catch(e){toast.error(e.response?.data?.message||'Could not update publication status.');}};
  const remove=async()=>{setBusy(true);try{await api.delete(`/products/admin/${confirm.id}`);toast.success('Product removed from the catalogue.');setConfirm(null);load();}catch(e){toast.error(e.response?.data?.message||'Could not remove product.');setConfirm(null);}finally{setBusy(false);}};
  const columns=useMemo(()=>[
-  {key:'id',label:'ID',render:(_,r)=><span className="font-mono text-xs">{r.id.slice(0,9)}</span>},
+  {key:'id',label:'ID',render:(_,r)=><span className="font-mono text-xs">{r.productNumber}</span>},
   {key:'product',label:'Product',render:(_,r)=><div className="flex items-center gap-3 min-w-48">{r.images?.[0]?.url?<img src={r.images.find(i=>i.isPrimary)?.url||r.images[0].url} alt="" className="h-12 w-12 rounded-lg object-cover"/>:<div className="h-12 w-12 rounded-lg bg-slate-100"/>}<div><p className="font-semibold text-slate-900">{r.name}</p><p className="text-xs text-slate-500">{r.slug}</p></div></div>},
   {key:'price',label:'Price',render:(_,r)=>r.pricingMode==='REQUEST_QUOTE'?'Quote':r.basePrice!=null?`₹${Number(r.basePrice).toLocaleString('en-IN')}`:'Quote'},
   {key:'stock',label:'Stock',render:(_,r)=>r.trackStock?(r.stockQuantity??0):'On request'},

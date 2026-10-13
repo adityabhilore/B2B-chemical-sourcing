@@ -52,10 +52,10 @@ export default function DataTable({
               value={searchValue}
               onChange={onSearch}
               placeholder={searchPlaceholder}
-              className="w-full md:max-w-xs md:flex-none"
+              className="w-full md:w-64 md:flex-none"
             />
           )}
-          {filters && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">{filters}</div>}
+          {filters && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 md:flex-nowrap md:overflow-x-auto md:pb-1 [&>*]:shrink-0">{filters}</div>}
         </div>
       )}
 
