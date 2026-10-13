@@ -40,7 +40,7 @@ const NAV_SECTIONS = [
     label: 'Settings',
     items: [
       { label: 'Customers', href: '/admin/customers', icon: 'users' },
-      { label: 'Shipping Rules', href: '/admin/shipping', icon: 'truck' },
+      { label: 'Shipping & Rates', href: '/admin/shipping', icon: 'truck' },
       { label: 'Site Settings', href: '/admin/settings', icon: 'settings' },
     ],
   },

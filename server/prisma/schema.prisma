@@ -129,6 +129,7 @@ model User {
   @@index([email])
   @@index([role])
   @@index([isApproved])
+  @@index([role, createdAt])
   @@map("users")
 }
 
@@ -192,6 +193,7 @@ model PasswordResetToken {
 
 model Company {
   id             String  @id @default(cuid())
+  companyNumber  Int     @unique @default(autoincrement())
   name           String
   type            String?
   isManufacturer Boolean @default(false)
@@ -224,6 +226,7 @@ model Company {
 
 model Category {
   id           String  @id @default(cuid())
+  categoryNumber Int    @unique @default(autoincrement())
   name         String
   slug         String  @unique
   description  String?
@@ -251,6 +254,7 @@ model Category {
 
 model Brand {
   id           String  @id @default(cuid())
+  brandNumber  Int     @unique @default(autoincrement())
   name         String  @unique
   slug         String  @unique
   logoUrl      String?
@@ -307,6 +311,7 @@ model Supplier {
 
 model Product {
   id          String        @id @default(cuid())
+  productNumber Int         @unique @default(autoincrement())
   name        String
   slug        String        @unique
   description String?
@@ -497,6 +502,7 @@ model OrderRequest {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([createdAt, status])
   @@map("order_requests")
 }
 
@@ -561,6 +567,10 @@ model ShippingRule {
   name        String  @unique // e.g. "Maharashtra Flat Rate"
   description String?
   isActive    Boolean @default(true)
+  originState String? // Indian state code; null means any origin
+  destinationState String? // Indian state code; null means any destination
+  methodId String?
+  method ShippingMethod? @relation(fields: [methodId], references: [id], onDelete: SetNull)
 
   // Matching criteria — null means "match all"
   stateCode     String? // ISO state code e.g. "MH", "GJ" — null = all India
@@ -583,7 +593,21 @@ model ShippingRule {
   updatedAt DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+  @@index([originState, destinationState, methodId, isActive])
   @@map("shipping_rules")
+}
+
+model ShippingMethod {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  rules       ShippingRule[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+  @@map("shipping_methods")
 }
 
 // ─────────────────────────────────────────────

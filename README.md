@@ -1,41 +1,49 @@
 # Chemical Market
 
-B2B chemical marketplace monorepo. The first schema migration and the Phase 2 auth/customer foundation are in place. Phase 3 adds local setup, shared API response handling, safe request logging, and an API/database health check.
+A B2B chemical marketplace for publishing a product catalogue, receiving quote and order requests, managing shipping estimates, and administering customers and content. This repository is a JavaScript monorepo with a React client and an Express/Prisma API.
 
-## Structure
+## Architecture
 
-```text
-client/                  Vite, React, Tailwind, React Router
-server/                  Express API and Prisma/PostgreSQL
-  prisma/                Schema, migrations, admin/settings seed
-  src/app.js              Express app and middleware
-  src/server.js           HTTP startup and graceful shutdown
-  src/modules/            Feature modules
-docs/                     Setup, checklist, and API testing notes
+- `client/`: React 19, Vite, React Router, Tailwind CSS, Recharts.
+- `server/`: Express 4 API, JWT authentication, Zod validation, Prisma ORM, PostgreSQL.
+- `server/prisma/`: schema, migrations, and seed script.
+- Cloudinary stores uploaded product/content media; Nodemailer sends operational email.
+
+The API returns `{ success, data, message, errors }` envelopes. Customers authenticate with short lived bearer tokens and an HttpOnly, SameSite Strict refresh cookie. Admin and customer resources are separated by role middleware. Order requests snapshot product information and do not collect payments.
+
+## Requirements and setup
+
+Requires Node.js 22+, npm 10+, and PostgreSQL. Copy `server/.env.example` to `server/.env` and `client/.env.example` to `client/.env.local`; fill in database, JWT, Cloudinary, SMTP, and seed-admin settings. Never commit environment files.
+
+```powershell
+npm install
+npm run generate --prefix server
+npm run migrate:deploy --prefix server
+npm run seed --prefix server
+npm run dev:server
 ```
 
-## Quick start (Windows PowerShell / VS Code)
+In another terminal:
 
-Requirements: Node.js 22+, npm 10+, and a running PostgreSQL database.
+```powershell
+npm run dev:client
+```
 
-1. From the repository root run `npm install`.
-2. Copy `server/.env.example` to `server/.env`; set the PostgreSQL `DATABASE_URL`, strong unique JWT secrets, Cloudinary credentials, SMTP credentials, and seed admin credentials. See [environment variables](docs/ENVIRONMENT.md).
-3. Copy `client/.env.example` to `client/.env.local`. The default API URL is `http://localhost:5000`.
-4. Run `npm run generate --prefix server` and `npm run migrate:deploy --prefix server`.
-5. Run `npm run seed --prefix server`. This creates only the configured first admin and default site settings; it creates no products/categories/brands.
-6. In separate VS Code terminals run `npm run dev:server` and `npm run dev:client`.
-7. Open `http://localhost:5173/health-check`. The page checks the API and PostgreSQL through `/api/health`. If the API reports that port 5000 was occupied and selected a fallback port, set that port in `client/.env.local` and restart Vite.
+The client runs at `http://localhost:5173`; the API defaults to `http://localhost:5000`. Set `CLIENT_ORIGIN` to the exact client origin. See [API_REFERENCE.md](API_REFERENCE.md) for routes and [SECURITY_REVIEW.md](SECURITY_REVIEW.md) for verification status and remaining review steps.
 
-The detailed Windows commands and manual verification steps are in [Phase 3 setup](docs/PHASE3_SETUP.md). API requests and the proposed Postman collection are outlined in [API testing](docs/API_TESTING.md).
+## Common commands
 
-Authentication and customer account implementation, session design, and Phase 4 manual/Postman checks are documented in [Phase 4 authentication](docs/PHASE4_AUTH.md).
+```powershell
+npm run build:client
+npm test --prefix server
+npm run generate --prefix server
+npm run migrate:deploy --prefix server
+npm audit
+```
 
-## API response format
+## Operational notes
 
-Successful responses use `{ "success": true, "data": ..., "message": "...", "errors": null }`. Failures use `{ "success": false, "data": null, "message": "...", "errors": ... }`. The health route is `GET /api/health` (the legacy `GET /health` alias remains available).
-
-## Git
-
-Git is initialized and the project files are staged for review. Suggested first commit message: `chore: initialize chemical marketplace monorepo`. The commit itself is still pending final approval.
-
-See [Phase 3 checklist](docs/PHASE3_CHECKLIST.md) for what is complete and what needs review.
+- `GET /api/health` checks the API and its database connection.
+- `server/.env` and local docs under `docs/` are intentionally ignored by Git. Share environment variable names through `.env.example`; do not put credentials there.
+- Order requests are not confirmed purchases. Estimate totals and shipping charges require confirmation by the marketplace team.
+- Before production, apply pending migrations, configure backups, verify SMTP and Cloudinary, run the manual acceptance checks, and review deployment-specific CORS/proxy settings.
