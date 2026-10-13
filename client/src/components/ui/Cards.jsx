@@ -63,6 +63,8 @@ export function ProductCard({ product, className }) {
           <img
             src={primaryImage.url}
             alt={primaryImage.altText || name}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
@@ -116,6 +118,8 @@ export function CategoryCard({ category, className }) {
           <img
             src={imageUrl}
             alt={name}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover opacity-70 group-hover:opacity-90 group-hover:scale-105 transition-all duration-300"
           />
         ) : (
@@ -146,6 +150,8 @@ export function BlogCard({ post, className }) {
           <img
             src={coverImageUrl}
             alt={title}
+            loading="lazy"
+            decoding="async"
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (

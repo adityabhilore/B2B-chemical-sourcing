@@ -129,6 +129,7 @@ model User {
   @@index([email])
   @@index([role])
   @@index([isApproved])
+  @@index([role, createdAt])
   @@map("users")
 }
 
@@ -497,6 +498,7 @@ model OrderRequest {
   @@index([userId])
   @@index([status])
   @@index([createdAt])
+  @@index([createdAt, status])
   @@map("order_requests")
 }
 
@@ -587,6 +589,7 @@ model ShippingRule {
   updatedAt DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+  @@index([originState, destinationState, methodId, isActive])
   @@map("shipping_rules")
 }
 

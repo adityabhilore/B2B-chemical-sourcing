@@ -45,16 +45,19 @@ export default function DataTable({
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
-      {/* Search */}
-      {onSearch && (
-        <SearchBar
-          value={searchValue}
-          onChange={onSearch}
-          placeholder={searchPlaceholder}
-          className="max-w-xs"
-        />
+      {(onSearch || filters) && (
+        <div className="flex flex-col gap-3 md:flex-row md:items-center">
+          {onSearch && (
+            <SearchBar
+              value={searchValue}
+              onChange={onSearch}
+              placeholder={searchPlaceholder}
+              className="w-full md:max-w-xs md:flex-none"
+            />
+          )}
+          {filters && <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">{filters}</div>}
+        </div>
       )}
-      {filters && <div className="flex flex-wrap items-center gap-3">{filters}</div>}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-xs">

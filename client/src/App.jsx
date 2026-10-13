@@ -1,30 +1,38 @@
 // src/App.jsx — Client-side router (React Router v6)
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { ToastProvider } from './context/ToastContext';
 import Toaster from './components/ui/Toast';
 
-// Pages
-import HomePage from './pages/public/HomePage';
-import StyleGuidePage from './pages/dev/StyleGuidePage';
-import DashboardPage from './pages/admin/DashboardPage';
 import CustomerLayout from './components/layout/CustomerLayout';
-import HealthCheckPage from './pages/dev/HealthCheckPage';
 import { AuthProvider } from './context/AuthContext';
 import { AdminRoute, ProtectedRoute } from './components/auth/RouteGuards';
-import AuthPage from './pages/auth/AuthPage';
-import AccountProfilePage from './pages/customer/AccountProfilePage';
-import CatalogueAdminPage from './pages/admin/CatalogueAdminPage';
-import ProductsPage from './pages/admin/ProductsPage';
-import ProductFormPage from './pages/admin/ProductFormPage';
-import PublicProductsPage from './pages/public/ProductsPage';
-import ProductDetailPage from './pages/public/ProductDetailPage';
-import ContactPage from './pages/public/ContactPage';
-import { BlogListPage, BlogDetailPage } from './pages/public/BlogPages';
-import { BlogAdminPage, HomepageAdminPage, SiteSettingsPage, EnquiriesPage } from './pages/admin/ContentAdminPages';
-import { OrderRequestPage, MyOrdersPage, OrderDetailPage } from './pages/customer/OrdersPage';
-import { OrdersAdminPage, OrderAdminDetailPage } from './pages/admin/OrdersAdminPage';
-import { CustomersAdminPage, CustomerAdminDetailPage } from './pages/admin/CustomersAdminPage';
-import ShippingAdminPage from './pages/admin/ShippingAdminPage';
+const HomePage=lazy(()=>import('./pages/public/HomePage'));
+const DashboardPage=lazy(()=>import('./pages/admin/DashboardPage'));
+const StyleGuidePage=lazy(()=>import('./pages/dev/StyleGuidePage'));
+const HealthCheckPage=lazy(()=>import('./pages/dev/HealthCheckPage'));
+const AuthPage=lazy(()=>import('./pages/auth/AuthPage'));
+const AccountProfilePage=lazy(()=>import('./pages/customer/AccountProfilePage'));
+const CatalogueAdminPage=lazy(()=>import('./pages/admin/CatalogueAdminPage'));
+const ProductsPage=lazy(()=>import('./pages/admin/ProductsPage'));
+const ProductFormPage=lazy(()=>import('./pages/admin/ProductFormPage'));
+const PublicProductsPage=lazy(()=>import('./pages/public/ProductsPage'));
+const ProductDetailPage=lazy(()=>import('./pages/public/ProductDetailPage'));
+const ContactPage=lazy(()=>import('./pages/public/ContactPage'));
+const BlogListPage=lazy(()=>import('./pages/public/BlogPages').then(m=>({default:m.BlogListPage})));
+const BlogDetailPage=lazy(()=>import('./pages/public/BlogPages').then(m=>({default:m.BlogDetailPage})));
+const BlogAdminPage=lazy(()=>import('./pages/admin/ContentAdminPages').then(m=>({default:m.BlogAdminPage})));
+const HomepageAdminPage=lazy(()=>import('./pages/admin/ContentAdminPages').then(m=>({default:m.HomepageAdminPage})));
+const SiteSettingsPage=lazy(()=>import('./pages/admin/ContentAdminPages').then(m=>({default:m.SiteSettingsPage})));
+const EnquiriesPage=lazy(()=>import('./pages/admin/ContentAdminPages').then(m=>({default:m.EnquiriesPage})));
+const OrderRequestPage=lazy(()=>import('./pages/customer/OrdersPage').then(m=>({default:m.OrderRequestPage})));
+const MyOrdersPage=lazy(()=>import('./pages/customer/OrdersPage').then(m=>({default:m.MyOrdersPage})));
+const OrderDetailPage=lazy(()=>import('./pages/customer/OrdersPage').then(m=>({default:m.OrderDetailPage})));
+const OrdersAdminPage=lazy(()=>import('./pages/admin/OrdersAdminPage').then(m=>({default:m.OrdersAdminPage})));
+const OrderAdminDetailPage=lazy(()=>import('./pages/admin/OrdersAdminPage').then(m=>({default:m.OrderAdminDetailPage})));
+const CustomersAdminPage=lazy(()=>import('./pages/admin/CustomersAdminPage').then(m=>({default:m.CustomersAdminPage})));
+const CustomerAdminDetailPage=lazy(()=>import('./pages/admin/CustomersAdminPage').then(m=>({default:m.CustomerAdminDetailPage})));
+const ShippingAdminPage=lazy(()=>import('./pages/admin/ShippingAdminPage'));
 
 // Placeholder pages — implement these in future phases
 const Placeholder = ({ name }) => (
@@ -45,7 +53,7 @@ export default function App() {
     <ToastProvider>
       <BrowserRouter>
        <AuthProvider>
-        <Routes>
+        <Suspense fallback={<div className="min-h-screen p-8 text-center text-sm text-slate-500">Loading page…</div>}><Routes>
           {/* Public */}
           <Route path="/" element={<HomePage />} />
           <Route path="/products" element={<PublicProductsPage />} />
@@ -97,7 +105,7 @@ export default function App() {
 
           {/* Catch-all */}
           <Route path="*" element={<Placeholder name="404 — Page Not Found" />} />
-        </Routes>
+        </Routes></Suspense>
        </AuthProvider>
       </BrowserRouter>
 
