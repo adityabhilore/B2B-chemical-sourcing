@@ -1,7 +1,7 @@
 ﻿// src/components/layout/AdminLayout.jsx
 // Collapsible sidebar, top header, breadcrumbs, user menu
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { createContext, useContext, useState, Suspense } from 'react';
+import { Link, useLocation, useNavigate, useOutlet } from 'react-router-dom';
 import { cn, initials } from '../../lib/utils';
 import { useAuth } from '../../context/AuthContext';
 import Breadcrumbs from '../ui/Breadcrumbs';
@@ -41,10 +41,14 @@ const NAV_SECTIONS = [
     items: [
       { label: 'Customers', href: '/admin/customers', icon: 'users' },
       { label: 'Shipping & Rates', href: '/admin/shipping', icon: 'truck' },
+      { label: 'Shipping Simulator', href: '/admin/shipping/simulator', icon: 'truck' },
       { label: 'Site Settings', href: '/admin/settings', icon: 'settings' },
+      { label: 'Audit & Reports', href: '/admin/audit-reports', icon: 'clipboard' },
     ],
   },
 ];
+
+const AdminShellContext = createContext(false);
 
 const ICONS = {
   grid: <svg className="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z"/></svg>,
@@ -60,7 +64,7 @@ const ICONS = {
 };
 
 function Sidebar({ collapsed, onToggle, onSignOut }) {
-  const currentPath = window.location.pathname;
+  const { pathname: currentPath } = useLocation();
 
   return (
     <aside
@@ -104,9 +108,9 @@ function Sidebar({ collapsed, onToggle, onSignOut }) {
               {section.items.map(item => {
                 const isActive = currentPath === item.href || currentPath.startsWith(item.href + '/');
                 return (
-                  <a
+                  <Link
                     key={item.label}
-                    href={item.href}
+                    to={item.href}
                     title={collapsed ? item.label : undefined}
                     className={cn(
                       'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium no-underline',
@@ -119,7 +123,7 @@ function Sidebar({ collapsed, onToggle, onSignOut }) {
                   >
                     <span className="shrink-0">{ICONS[item.icon]}</span>
                     {!collapsed && <span className="truncate">{item.label}</span>}
-                  </a>
+                  </Link>
                 );
               })}
             </div>
@@ -170,8 +174,8 @@ function TopBar({ collapsed, breadcrumbs, title }) {
           <span aria-hidden="true" className="text-xs text-slate-500">⌄</span>
         </button>
         {userMenuOpen && <div role="menu" className="absolute right-0 top-full mt-2 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-          <a role="menuitem" href="/admin/settings" className="block rounded px-3 py-2 text-sm text-slate-700 no-underline hover:bg-slate-50">Account settings</a>
-          <a role="menuitem" href="/auth/logout" className="block rounded px-3 py-2 text-sm text-slate-700 no-underline hover:bg-slate-50">Sign out</a>
+          <Link role="menuitem" to="/admin/settings" className="block rounded px-3 py-2 text-sm text-slate-700 no-underline hover:bg-slate-50">Account settings</Link>
+          <button role="menuitem" type="button" onClick={onSignOut} className="block w-full rounded px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50">Sign out</button>
         </div>}
       </div>
     </header>
@@ -184,6 +188,9 @@ function TopBar({ collapsed, breadcrumbs, title }) {
  * @param {Array<{label, href?}>} breadcrumbs
  */
 export default function AdminLayout({ children, title, breadcrumbs }) {
+  const inAdminShell = useContext(AdminShellContext);
+  const outlet = useOutlet();
+  const { pathname } = useLocation();
   const [collapsed, setCollapsed] = useState(() => window.innerWidth < 768);
   const { logout } = useAuth();
   const navigate = useNavigate();
@@ -193,10 +200,27 @@ export default function AdminLayout({ children, title, breadcrumbs }) {
     navigate('/admin/login', { replace: true });
   };
 
+  // Page components still use AdminLayout to provide their frame metadata.
+  // Under the persistent route shell, keep only their content so navigation
+  // never tears down the sidebar and header.
+  if (inAdminShell) return children;
+
+  const routeTitles = [
+    ['/admin/products', 'Manage Products'], ['/admin/categories', 'Manage Categories'],
+    ['/admin/brands', 'Manage Brands'], ['/admin/companies', 'Manage Companies'],
+    ['/admin/orders', 'Manage Orders'], ['/admin/blog', 'Blog Posts'],
+    ['/admin/homepage', 'Homepage CMS'], ['/admin/enquiries', 'Enquiries'],
+    ['/admin/customers', 'Customers'], ['/admin/shipping/simulator', 'Shipping Simulator'],
+    ['/admin/shipping', 'Shipping & Rates'], ['/admin/settings', 'Site Settings'],
+    ['/admin/audit-reports', 'Audit & Reports'],
+  ];
+  const pageTitle = title || (pathname === '/admin' ? 'Dashboard' : routeTitles.find(([path]) => pathname === path || pathname.startsWith(`${path}/`))?.[1] || 'Admin');
+
   return (
+    <AdminShellContext.Provider value>
     <div className="min-h-screen bg-slate-50 font-body">
       <Sidebar collapsed={collapsed} onToggle={() => setCollapsed(v => !v)} onSignOut={handleSignOut} />
-      <TopBar collapsed={collapsed} title={title} breadcrumbs={breadcrumbs} />
+      <TopBar collapsed={collapsed} title={pageTitle} breadcrumbs={breadcrumbs} />
       <main
         className={cn(
           'pt-16 min-h-screen transition-all duration-300',
@@ -204,9 +228,10 @@ export default function AdminLayout({ children, title, breadcrumbs }) {
         )}
       >
         <div className="p-6 lg:p-8">
-          {children}
+          <Suspense fallback={<div className="skeleton h-40 rounded-xl" aria-label="Loading admin page" />}>{children ?? outlet}</Suspense>
         </div>
       </main>
     </div>
+    </AdminShellContext.Provider>
   );
 }

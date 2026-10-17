@@ -14,6 +14,8 @@ export function OrdersAdminPage() {
   const [to, setTo] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [savedFilters, setSavedFilters] = useState(() => { try { return JSON.parse(localStorage.getItem('admin.orderFilters') || '[]'); } catch { return []; } });
+  const [failedNotifications, setFailedNotifications] = useState([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -33,10 +35,14 @@ export function OrdersAdminPage() {
   }, [status, customer, from, to]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { api.get('/orders/admin/notifications/failed').then(({ data }) => setFailedNotifications(data.data.items)).catch(() => setFailedNotifications([])); }, []);
+  const saveFilter = () => { const name = window.prompt('Name this order filter'); if (!name?.trim()) return; const next = [...savedFilters.filter(item => item.name !== name.trim()), { name: name.trim(), status, customer, from, to }]; setSavedFilters(next); localStorage.setItem('admin.orderFilters', JSON.stringify(next)); };
+  const retryNotification = async id => { try { await api.post(`/orders/admin/notifications/${id}/retry`); setFailedNotifications(rows => rows.filter(row => row.id !== id)); } catch (e) { setError(e.response?.data?.message || 'Notification retry failed.'); } };
 
   return <AdminLayout title="Manage Orders" breadcrumbs={[{ label: 'Admin', href: '/admin' }, { label: 'Orders' }]}>
     <div className="space-y-5">
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
+        <div className="mb-3 flex flex-wrap items-center gap-2"><label className="text-xs text-slate-600">Saved filters <select className="input-base ml-2" defaultValue="" onChange={e => { const f = savedFilters.find(item => item.name === e.target.value); if (f) { setStatus(f.status); setCustomer(f.customer); setFrom(f.from); setTo(f.to); } }}><option value="">Choose saved filter</option>{savedFilters.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}</select></label><Button size="sm" variant="outline" onClick={saveFilter}>Save current filter</Button></div>
         <div className="flex flex-wrap items-end gap-3">
           <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-medium text-slate-600">Status
             <select className="input-base w-full" value={status} onChange={e => setStatus(e.target.value)}><option value="">All statuses</option>{statuses.map(value => <option key={value}>{value}</option>)}</select>
@@ -52,6 +58,7 @@ export function OrdersAdminPage() {
           </label>
         </div>
       </section>
+      {failedNotifications.length > 0 && <section className="rounded-xl border border-amber-200 bg-amber-50 p-4"><h2 className="font-semibold text-amber-950">Failed notifications ({failedNotifications.length})</h2><p className="mb-3 text-xs text-amber-900">Retries use the existing notification record. Review delivery results after retry.</p><div className="space-y-2">{failedNotifications.map(log => <div key={log.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white p-3 text-sm"><span>{log.channel} · {log.recipient} · {log.error || 'Delivery failed'}{log.orderRequestId && <Link className="ml-2 text-navy-700 underline" to={`/admin/orders/${log.orderRequestId}`}>Order details</Link>}</span><Button size="sm" variant="outline" onClick={() => retryNotification(log.id)}>Retry</Button></div>)}</div></section>}
       {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
       <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-xs">
         <table className="w-full min-w-[760px] text-left text-sm">
@@ -61,7 +68,7 @@ export function OrdersAdminPage() {
               : rows.map(order => <tr key={order.id} className="border-t border-slate-100 hover:bg-slate-50/70">
                 <td className="p-3 font-semibold">{order.orderNumber}</td>
                 <td className="p-3">{order.user.fullName}<div className="text-xs text-slate-500">{order.user.email}</div></td>
-                <td className="p-3">{order.items.length}</td><td className="p-3">{order.status}</td>
+                <td className="p-3">{order.items.length}</td><td className="p-3"><span>{order.status}</span><div className="text-xs text-slate-500">{order.estimatedTotal == null ? 'Quote required' : `Estimate ₹${Number(order.estimatedTotal).toLocaleString('en-IN')} · availability unconfirmed`}</div></td>
                 <td className="p-3">{new Date(order.createdAt).toLocaleDateString()}</td>
                 <td className="p-3"><Link className="font-medium text-navy-700 hover:underline" to={`/admin/orders/${order.id}`}>Details</Link></td>
               </tr>)}

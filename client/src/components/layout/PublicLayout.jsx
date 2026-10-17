@@ -1,13 +1,15 @@
 ﻿// src/components/layout/PublicLayout.jsx
 // Sticky navbar with search, mobile drawer, rich footer
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import SearchBar from '../ui/SearchBar';
 import { api } from '../../lib/api';
 
 const NAV_LINKS = [
   { label: 'Products', href: '/products' },
-  { label: 'Categories', href: '/products#categories' },
+  { label: 'Categories', href: '/categories' },
+  { label: 'About', href: '/about' },
   { label: 'Blog', href: '/blog' },
   { label: 'Contact', href: '/contact' },
 ];
@@ -17,10 +19,11 @@ const FOOTER_LINKS = {
     { label: 'About Us', href: '/about' },
     { label: 'Contact', href: '/contact' },
     { label: 'Blog', href: '/blog' },
+    { label: 'Chemical safety & shipping', href: '/safety' },
   ],
   'Products': [
     { label: 'All Products', href: '/products' },
-    { label: 'Browse Categories', href: '/products#categories' },
+    { label: 'Browse Categories', href: '/categories' },
     { label: 'Request a Quote', href: '/contact' },
   ],
   'Account': [
@@ -167,13 +170,11 @@ function Footer({settings}) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                 </svg>
               </div>
-              <span className="font-heading font-bold text-white text-lg">ChemMarket</span>
+              <span className="font-heading font-bold text-white text-lg">{settings.name||'Chemical Market'}</span>
             </div>
-            {/* PLACEHOLDER: Add company description */}
             <p className="text-sm text-slate-400 leading-relaxed">
               {settings.description||''}
             </p>
-            {/* PLACEHOLDER: Add real contact details */}
             <div className="mt-5 flex flex-col gap-2 text-sm text-slate-400">
               {settings.email&&<a href={`mailto:${settings.email}`} className="text-slate-400">{settings.email}</a>}
               {settings.phone&&<a href={`tel:${settings.phone}`} className="text-slate-400">{settings.phone}</a>}
@@ -200,7 +201,7 @@ function Footer({settings}) {
 
         <div className="divider border-slate-700 mb-6" />
         <div className="flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-500">
-          <p>© {new Date().getFullYear()} {settings.name||'ChemMarket'}. All rights reserved.</p>
+          <p>© {new Date().getFullYear()} {settings.name||'Chemical Market'}. All rights reserved.</p>
           <div className="flex gap-4">
             <a href="/privacy" className="hover:text-slate-300 transition-colors no-underline">Privacy Policy</a>
             <a href="/terms" className="hover:text-slate-300 transition-colors no-underline">Terms of Use</a>
@@ -215,13 +216,16 @@ function Footer({settings}) {
  * PublicLayout — wraps all public-facing pages
  */
 export default function PublicLayout({ children, settings: providedSettings, theme: providedTheme }) {
+  const location = useLocation();
   const [search, setSearch] = useState('');
   const [cms,setCms]=useState({site:{},theme:{},sections:[]});
   useEffect(()=>{api.get('/content/public/homepage').then(r=>setCms(r.data.data)).catch(()=>{});},[]);
+  useEffect(()=>{const canonical=document.head.querySelector('link[rel="canonical"]')||document.head.appendChild(Object.assign(document.createElement('link'),{rel:'canonical'}));canonical.href=`${window.location.origin}${location.pathname}`;},[location.pathname]);
   const settings={...(providedSettings||cms.site||{}),logoUrl:(providedTheme||cms.theme||{}).logoUrl};const theme=providedTheme||cms.theme||{};
   useEffect(()=>{if(theme.primaryColor){document.documentElement.style.setProperty('--brand-primary',theme.primaryColor);document.documentElement.style.setProperty('--color-navy-600',theme.primaryColor);}if(theme.secondaryColor){document.documentElement.style.setProperty('--brand-accent',theme.secondaryColor);document.documentElement.style.setProperty('--color-teal-500',theme.secondaryColor);}if(theme.font){document.documentElement.style.setProperty('--font-body',`'${theme.font}'`);document.documentElement.style.setProperty('--font-heading',`'${theme.font}'`);}},[theme.primaryColor,theme.secondaryColor,theme.font]);
   return (
     <div className="min-h-screen flex flex-col bg-white font-body">
+      <a href="#main-content" className="sr-only z-[100] rounded bg-white p-3 text-navy-900 focus:not-sr-only focus:fixed focus:left-3 focus:top-3">Skip to main content</a>
       <Navbar searchValue={search} onSearch={setSearch} settings={settings} />
       <main id="main-content" className="flex-1">
         {children}

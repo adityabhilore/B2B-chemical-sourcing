@@ -20,7 +20,7 @@ Run with `npm test --prefix server`. These Supertest tests exercise Express rout
 | 12 | SMTP failure does not undo order and notification is FAILED | PASS* | Automated: email error logged after mocked order save |
 | 13 | Repeating an idempotency key creates only one row | NOT RUN | Requires database-backed duplicate submission check |
 | 14 | Product/variant publication and availability are enforced against a real catalogue | NOT RUN | Requires PostgreSQL fixture walkthrough |
-| 15 | Product edits after submission do not change persisted snapshots | NOT RUN | Requires migration and live database check |
+| 15 | Product edits after submission do not change persisted snapshots | NOT RUN | Requires live order fixture and database check; migrations are applied |
 | 16 | Valid shipping estimate and no-match estimate are correct | NOT RUN | Requires shipping rules and customer walkthrough |
 | 17 | Overlapping shipping rules are rejected, including wildcard cases | NOT RUN | Requires database-backed admin workflow |
 | 18 | Dashboard values and graphs match live records | NOT RUN | Requires representative PostgreSQL data |
@@ -42,17 +42,17 @@ Run with `npm test --prefix server`. These Supertest tests exercise Express rout
 | XSS | Blog HTML passes an allowlist sanitizer on save and public read. Public product fields use an explicit DTO allowlist. Continue escaping text in any new raw HTML sinks. |
 | Uploads | Images are restricted to JPEG/PNG/WebP with size caps and signature checks before Cloudinary. Documents are PDF-only with a signature check and size cap. Uploaded images use Cloudinary automatic format/quality and a 1600px limit. |
 | Secrets | `.env` and nested `.env.*` are ignored; example files remain allowed. `server/.env` is ignored and not tracked. A pattern scan of tracked files found no common API token, private key, or high-entropy credential patterns. This heuristic scan cannot prove no secret exists. |
-| Logs | Morgan records method, status, latency, and response length only; it intentionally omits URLs, headers, and bodies to avoid tokens/passwords/PII. Notification error text is retained in an admin-only log. |
-| Dependencies | `npm audit --omit=dev`: 0 vulnerabilities. Full `npm audit`: 7 development dependency vulnerabilities (5 high, 2 moderate) in the Tailwind CSS 3 toolchain (`braces` and `postcss-selector-parser` transitive dependencies). Runtime `bcrypt` and Nodemailer are on audited versions. Resolve the remaining findings through dependency updates; a major Tailwind migration may be needed. |
+| Logs | Morgan records a validated request ID, method, status, latency, and response length. It omits URLs, headers, and bodies to avoid tokens/passwords/PII. Server errors and database/email/upload failures produce sanitized JSON events; optional `OPS_ALERT_WEBHOOK` forwards those events. Notification delivery details remain in the admin-only database log. |
+| Dependencies | Re-audited 17 October 2026: `npm audit --omit=dev` reports 0 vulnerabilities. Full `npm audit` reports 7 development dependency findings (5 high, 2 moderate) in the Tailwind 3 toolchain (`braces` and `postcss-selector-parser` transitive dependencies); npm reports no fix for the parser advisory. `npm audit fix` did not complete in this environment, so no dependency changes were applied. Resolve remaining findings through safe upstream updates or a planned Tailwind toolchain upgrade. |
 
-`npm run build --prefix client` succeeds; route and chart code splitting keeps the initial JS bundle at about 279 kB (88 kB gzip), with charts loaded separately. `npx prisma validate` succeeds. Prisma Client generation previously failed on Windows with `EPERM` while replacing its query engine DLL, so database-backed tests and migrations have not been run. The Phase 10 index migration is present but unapplied.
+Verification update (17 October 2026): the client production build succeeds and lint exits successfully with existing warnings. The mocked server suite passes (15 tests), and Prisma schema validation succeeds with a CI-safe database URL. The production dependency audit reports zero findings; the full development dependency audit has seven findings described above. Added `.github/workflows/ci.yml` and a PostgreSQL integration suite, but the workflow and database-backed suite have not yet run in GitHub Actions because no CI run was triggered here and no dedicated `TEST_DATABASE_URL` was configured. Prior local checks report all 10 existing migrations applied. A real concurrent-order walkthrough remains pending until the PostgreSQL suite runs.
 
 ## UX, accessibility, and performance review
 
 - The production client build is the responsive/layout smoke check available here. Components use responsive grid breakpoints, but no browser viewport, keyboard, screen-reader, or Lighthouse run was available; those remain manual.
 - Product, category, and article card images use native lazy loading and async decoding. Product/content uploads request Cloudinary `q_auto`, `f_auto`, and a 1600px maximum width. No claim is made that pre-existing Cloudinary assets were reprocessed.
 - Main catalogue, blog, customer, order, company, enquiry, and shipping admin lists use pagination. Reference lists (Indian states and active shipping methods) are intentionally finite/small. Dashboard chart series reads the last 30 days of order rows; consider a database-side daily aggregate if order volume grows materially.
-- Database indexes cover user role/registration date, order date/status, shipping rule matching, and existing order/product lookup fields. Apply the pending Phase 10 index migration before relying on them.
+- Database indexes cover user role/registration date, order date/status, shipping rule matching, and existing order/product lookup fields. Migration status was checked on 17 October 2026 and reports the Phase 10 index migration applied.
 - Empty, loading, and error states exist on the principal customer/admin screens. Manual keyboard/focus contrast and small-screen table review remain outstanding.
 
 ## PostgreSQL backup and recovery

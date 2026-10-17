@@ -35,6 +35,11 @@ export default function CustomerLayout({ children, title, breadcrumbs }) {
     <main className="container-content py-8 md:py-10">
       {breadcrumbs && <Breadcrumbs items={breadcrumbs} className="mb-4" />}
       {title && <h1 className="mb-6 text-2xl font-bold text-slate-900">{title}</h1>}
+      {user?.role === 'CUSTOMER' && user.isApproved === false && <aside className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="status">
+        <p className="font-semibold">Your business account is awaiting approval.</p>
+        <p className="mt-1">You can review your profile while the marketplace team checks your registration. Order requests become available after approval.</p>
+        <Link className="mt-2 inline-block font-semibold text-amber-900 underline" to="/account/profile">Review your business profile</Link>
+      </aside>}
       {children}
     </main>
   </div>;

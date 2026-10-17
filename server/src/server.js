@@ -2,6 +2,7 @@ import app from './app.js';
 import { config } from './config/index.js';
 import { prisma } from './lib/prisma.js';
 import { verifyMailer } from './lib/mailer.js';
+import { reportOperationalFailure } from './utils/observability.js';
 
 let activeServer;
 
@@ -15,7 +16,7 @@ function listen(port, attempts = 0) {
     try {
       await verifyMailer();
     } catch (error) {
-      console.warn(`SMTP startup check failed: ${error.message}`);
+      reportOperationalFailure('smtp_startup_check', error);
     }
   });
   server.once('error', (error) => {
