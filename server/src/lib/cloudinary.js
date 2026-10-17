@@ -5,6 +5,7 @@
 
 import { v2 as cloudinary } from "cloudinary";
 import { config } from "../config/index.js";
+import { reportOperationalFailure } from "../utils/observability.js";
 
 cloudinary.config({
   cloud_name: config.cloudinary.cloudName,
@@ -26,7 +27,7 @@ export async function uploadBuffer(buffer, opts = {}) {
     const stream = cloudinary.uploader.upload_stream(
       { resource_type: "auto", ...opts },
       (err, result) => {
-        if (err) return reject(err);
+        if (err) { reportOperationalFailure('upload', err); return reject(err); }
         resolve({
           publicId: result.public_id,
           url: result.secure_url,

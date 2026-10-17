@@ -7,6 +7,7 @@
 
 import nodemailer from "nodemailer";
 import { config } from "../config/index.js";
+import { reportOperationalFailure } from "../utils/observability.js";
 
 const transport = nodemailer.createTransport({
   host: config.email.host,
@@ -34,6 +35,7 @@ export async function sendMail({ to, subject, html, text }) {
     });
     return { ok: true, messageId: info.messageId };
   } catch (err) {
+    reportOperationalFailure('email', err);
     return { ok: false, error: err.message };
   }
 }
@@ -47,6 +49,6 @@ export async function verifyMailer() {
     await transport.verify();
     console.log("✓ SMTP connection verified");
   } catch (err) {
-    console.warn(`⚠  SMTP verify failed: ${err.message} (emails will be queued/failed)`);
+    reportOperationalFailure('smtp_startup_check', err);
   }
 }

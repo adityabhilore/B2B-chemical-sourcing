@@ -41,6 +41,8 @@ npm run migrate:deploy --prefix server
 npm audit
 ```
 
+CI runs through `.github/workflows/ci.yml`. PostgreSQL-backed integration tests use `TEST_DATABASE_URL`; point it only at a dedicated database whose name contains `test`, apply migrations first, then run `npm run test:integration --prefix server`. See [RELEASE_PROCESS.md](RELEASE_PROCESS.md) for staging promotion, migration/restore limits, and the post-deploy checklist.
+
 ## Operational notes
 
 - `GET /api/health` checks the API and its database connection.

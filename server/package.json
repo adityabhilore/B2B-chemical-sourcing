@@ -16,7 +16,8 @@
     "studio": "prisma studio",
     "seed": "node prisma/seed.js",
     "generate": "prisma generate",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

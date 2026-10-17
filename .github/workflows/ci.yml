@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, master]
+
+jobs:
+  quality-and-database:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: chemical_market_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d chemical_market_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chemical_market_test?schema=public
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/chemical_market_test?schema=public
+      JWT_ACCESS_SECRET: ci-only-access-secret-change-me-32-characters
+      JWT_REFRESH_SECRET: ci-only-refresh-secret-change-me-32-characters
+      CLOUDINARY_CLOUD_NAME: ci-test
+      CLOUDINARY_API_KEY: ci-test
+      CLOUDINARY_API_SECRET: ci-test
+      SMTP_USER: ci@example.invalid
+      SMTP_PASS: ci-test
+      ADMIN_NOTIFICATION_EMAIL: ci@example.invalid
+      VITE_SITE_URL: https://ci.example.invalid
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint client
+        run: npm run lint --prefix client
+      - name: Build client and generate sitemap
+        run: npm run build --prefix client
+      - name: Validate Prisma schema
+        run: npx prisma validate --schema server/prisma/schema.prisma
+      - name: Generate Prisma Client
+        run: npm run generate --prefix server
+      - name: Apply and verify migrations on clean PostgreSQL
+        run: |
+          npx prisma migrate deploy --schema server/prisma/schema.prisma
+          npx prisma migrate status --schema server/prisma/schema.prisma
+      - name: Run mocked API tests
+        run: npm test --prefix server
+      - name: Run PostgreSQL integration tests
+        run: npm run test:integration --prefix server
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

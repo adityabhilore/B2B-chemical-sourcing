@@ -5,6 +5,7 @@ import { ToastProvider } from './context/ToastContext';
 import Toaster from './components/ui/Toast';
 
 import CustomerLayout from './components/layout/CustomerLayout';
+import AdminLayout from './components/layout/AdminLayout';
 import { AuthProvider } from './context/AuthContext';
 import { AdminRoute, ProtectedRoute } from './components/auth/RouteGuards';
 const HomePage=lazy(()=>import('./pages/public/HomePage'));
@@ -12,11 +13,15 @@ const DashboardPage=lazy(()=>import('./pages/admin/DashboardPage'));
 const StyleGuidePage=lazy(()=>import('./pages/dev/StyleGuidePage'));
 const HealthCheckPage=lazy(()=>import('./pages/dev/HealthCheckPage'));
 const AuthPage=lazy(()=>import('./pages/auth/AuthPage'));
+const PasswordRecoveryPage=lazy(()=>import('./pages/auth/PasswordRecoveryPage'));
+const AboutPage=lazy(()=>import('./pages/public/AboutPage'));
+const PolicyPage=lazy(()=>import('./pages/public/PolicyPages'));
 const AccountProfilePage=lazy(()=>import('./pages/customer/AccountProfilePage'));
 const CatalogueAdminPage=lazy(()=>import('./pages/admin/CatalogueAdminPage'));
 const ProductsPage=lazy(()=>import('./pages/admin/ProductsPage'));
 const ProductFormPage=lazy(()=>import('./pages/admin/ProductFormPage'));
 const PublicProductsPage=lazy(()=>import('./pages/public/ProductsPage'));
+const PublicCategoriesPage=lazy(()=>import('./pages/public/CategoriesPage'));
 const ProductDetailPage=lazy(()=>import('./pages/public/ProductDetailPage'));
 const ContactPage=lazy(()=>import('./pages/public/ContactPage'));
 const BlogListPage=lazy(()=>import('./pages/public/BlogPages').then(m=>({default:m.BlogListPage})));
@@ -33,6 +38,8 @@ const OrderAdminDetailPage=lazy(()=>import('./pages/admin/OrdersAdminPage').then
 const CustomersAdminPage=lazy(()=>import('./pages/admin/CustomersAdminPage').then(m=>({default:m.CustomersAdminPage})));
 const CustomerAdminDetailPage=lazy(()=>import('./pages/admin/CustomersAdminPage').then(m=>({default:m.CustomerAdminDetailPage})));
 const ShippingAdminPage=lazy(()=>import('./pages/admin/ShippingAdminPage'));
+const ShippingSimulatorPage=lazy(()=>import('./pages/admin/ShippingSimulatorPage'));
+const AuditReportsPage=lazy(()=>import('./pages/admin/AuditReportsPage'));
 
 // Placeholder pages — implement these in future phases
 const Placeholder = ({ name }) => (
@@ -57,17 +64,22 @@ export default function App() {
           {/* Public */}
           <Route path="/" element={<HomePage />} />
           <Route path="/products" element={<PublicProductsPage />} />
+          <Route path="/categories" element={<PublicCategoriesPage />} />
           <Route path="/products/:slug" element={<ProductDetailPage />} />
           <Route path="/blog" element={<BlogListPage />} />
           <Route path="/blog/:slug" element={<BlogDetailPage />} />
           <Route path="/contact" element={<ContactPage />} />
-          <Route path="/about" element={<Placeholder name="About Us" />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/terms" element={<PolicyPage />} />
+          <Route path="/privacy" element={<PolicyPage />} />
+          <Route path="/safety" element={<PolicyPage />} />
 
           {/* Auth */}
           <Route path="/auth/login" element={<AuthPage />} />
           <Route path="/auth/register" element={<AuthPage mode="register" />} />
           <Route path="/admin/login" element={<AuthPage admin />} />
-          <Route path="/auth/forgot-password" element={<Placeholder name="Forgot Password" />} />
+          <Route path="/auth/forgot-password" element={<PasswordRecoveryPage />} />
+          <Route path="/auth/reset-password" element={<PasswordRecoveryPage reset />} />
 
           {/* Customer */}
           <Route element={<ProtectedRoute />}>
@@ -80,6 +92,7 @@ export default function App() {
 
           {/* Admin */}
           <Route element={<AdminRoute />}>
+            <Route element={<AdminLayout />}>
             <Route path="/admin" element={<DashboardPage />} />
             <Route path="/admin/products" element={<ProductsPage />} />
             <Route path="/admin/products/new" element={<ProductFormPage />} />
@@ -94,9 +107,12 @@ export default function App() {
             <Route path="/admin/customers" element={<CustomersAdminPage />} />
             <Route path="/admin/customers/:id" element={<CustomerAdminDetailPage />} />
             <Route path="/admin/shipping" element={<ShippingAdminPage />} />
+            <Route path="/admin/shipping/simulator" element={<ShippingSimulatorPage />} />
+            <Route path="/admin/audit-reports" element={<AuditReportsPage />} />
             <Route path="/admin/settings" element={<SiteSettingsPage />} />
             <Route path="/admin/homepage" element={<HomepageAdminPage />} />
             <Route path="/admin/enquiries" element={<EnquiriesPage />} />
+            </Route>
           </Route>
 
           {/* Dev tools */}

@@ -73,9 +73,6 @@ export async function notifyEmail({
     }
   }
 
-  if (!ok) {
-    console.error(`[notify] Email FAILED to ${to} (template: ${templateId}): ${error}`);
-  }
 }
 
 /**

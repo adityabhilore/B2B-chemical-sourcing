@@ -37,8 +37,8 @@ export const authenticate = asyncHandler(async (req, _res, next) => {
     return next(unauthorized("Invalid access token", "TOKEN_INVALID"));
   }
 
-  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, email: true, role: true, isActive: true } });
+  const user = await prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, email: true, role: true, isActive: true, isApproved: true } });
   if (!user || !user.isActive) return next(unauthorized("Session is no longer active"));
-  req.user = { id: user.id, email: user.email, role: user.role };
+  req.user = { id: user.id, email: user.email, role: user.role, isApproved: user.isApproved };
   next();
 });

@@ -17,11 +17,14 @@ import shippingRouter from './modules/shipping/shipping.router.js';
 import { requestLogger } from './middleware/requestLogger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { successResponse, errorResponse } from './utils/apiResponse.js';
+import { requestContextMiddleware } from './utils/requestContext.js';
+import { reportOperationalFailure } from './utils/observability.js';
 
 const app = express();
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(cors({ origin: config.cors.origin, credentials: true }));
+app.use(requestContextMiddleware);
 app.use(requestLogger);
 app.use(rateLimit({ windowMs: 15 * 60 * 1000, max: 500, skip: () => config.isDev, standardHeaders: true, legacyHeaders: false }));
 app.use(express.json({ limit: '1mb' }));
@@ -32,13 +35,22 @@ async function health(_req, res) {
   try {
     await prisma.$queryRaw`SELECT 1`;
     return res.json(successResponse({ status: 'ok', database: 'connected', timestamp: new Date().toISOString(), environment: config.env }, 'API and database are healthy'));
-  } catch {
+  } catch (error) {
+    reportOperationalFailure('database_healthcheck', error);
     return res.status(503).json(errorResponse('API is running but the database is unavailable', { database: 'disconnected' }));
   }
 }
 
 app.get('/health', health);
 app.get('/api/health', health);
+// Public catalogue and reference data can be revalidated briefly; account/admin responses stay private.
+const publicReadCache = (req, res, next) => {
+  if (req.method === 'GET') res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+  next();
+};
+app.use('/api/products/public', publicReadCache);
+app.use('/api/catalogue/public', publicReadCache);
+app.use('/api/content/public', publicReadCache);
 app.use('/api/auth', authRouter);
 app.use('/api/customer', customerRouter);
 app.use('/api/admin', adminRouter);

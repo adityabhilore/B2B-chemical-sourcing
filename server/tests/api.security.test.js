@@ -30,7 +30,7 @@ const token = () => jwt.default.sign({ sub: 'test-user' }, process.env.JWT_ACCES
 
 beforeEach(() => {
   vi.clearAllMocks();
-  prisma.user.findUnique.mockResolvedValue({ id: 'test-user', email: 'test@example.test', role: 'CUSTOMER', isActive: true });
+  prisma.user.findUnique.mockResolvedValue({ id: 'test-user', email: 'test@example.test', role: 'CUSTOMER', isActive: true, isApproved: true });
   prisma.user.findFirst.mockResolvedValue(null);
   prisma.product.findMany.mockResolvedValue([]);
   prisma.product.count.mockResolvedValue(0);
@@ -66,6 +66,30 @@ describe('API security and business rules', () => {
     expect(prisma.product.findMany.mock.calls[0][0].where).toMatchObject({ status: 'ACTIVE', deletedAt: null });
   });
 
+  it('searches the public catalogue by brand, manufacturer, SKU, and packaging', async () => {
+    const response = await request(app).get('/api/products/public').query({ search: 'drum' });
+    expect(response.status).toBe(200);
+    const alternatives = prisma.product.findMany.mock.calls[0][0].where.AND[0].OR;
+    expect(alternatives.find(item => item.brand)).toMatchObject({ brand: { is: { name: { contains: 'drum', mode: 'insensitive' } } } });
+    expect(alternatives.find(item => item.manufacturerCompany)).toMatchObject({ manufacturerCompany: { is: { name: { contains: 'drum', mode: 'insensitive' } } } });
+    const variantSearch = alternatives.find(item => item.variants).variants.some;
+    expect(variantSearch.isActive).toBe(true);
+    expect(variantSearch.OR).toContainEqual({ sku: { contains: 'drum', mode: 'insensitive' } });
+    expect(variantSearch.OR).toContainEqual({ packageSize: { contains: 'drum', mode: 'insensitive' } });
+  });
+
+  it('searches products by brand, manufacturer, SKU, and packaging', async () => {
+    const response = await request(app).get('/api/products/public').query({ search: 'drum' });
+    expect(response.status).toBe(200);
+    const alternatives = prisma.product.findMany.mock.calls[0][0].where.AND[0].OR;
+    expect(alternatives.find(item => item.brand)).toMatchObject({ brand: { is: { name: { contains: 'drum', mode: 'insensitive' } } } });
+    expect(alternatives.find(item => item.manufacturerCompany)).toMatchObject({ manufacturerCompany: { is: { name: { contains: 'drum', mode: 'insensitive' } } } });
+    const variantSearch = alternatives.find(item => item.variants).variants.some;
+    expect(variantSearch.isActive).toBe(true);
+    expect(variantSearch.OR).toContainEqual({ sku: { contains: 'drum', mode: 'insensitive' } });
+    expect(variantSearch.OR).toContainEqual({ packageSize: { contains: 'drum', mode: 'insensitive' } });
+  });
+
   it('strips supplier and internal product fields from public DTOs', () => {
     const dto = toPublicProductDTO({ id:'p',name:'Solvent',slug:'solvent',sourceType:'OTHER_COMPANY',supplierCompanyId:'private',supplierCompany:{name:'Private Supplier'},supplier:{contactEmail:'private@example.test'},purchasePriceRef:99,internalNotes:'private',category:null,brand:null,manufacturer:null,manufacturerCompany:null,sellerCompany:null,images:[],documents:[],variants:[] });
     for (const key of ['sourceType','supplierCompanyId','supplierCompany','supplier','purchasePriceRef','internalNotes']) expect(dto).not.toHaveProperty(key);
@@ -98,10 +122,38 @@ describe('API security and business rules', () => {
     expect(prisma.notificationLog.update).toHaveBeenCalledWith(expect.objectContaining({data:expect.objectContaining({status:'FAILED',error:'SMTP unavailable'})}));
   });
 
+  it('retries order creation after a serializable transaction conflict', async () => {
+    prisma.product.findMany.mockResolvedValue([{ id:'product-1',name:'Reagent',status:'ACTIVE',deletedAt:null,pricingMode:'FIXED',basePrice:999,minOrderQuantity:1,trackStock:false,brand:null,manufacturer:null,manufacturerCompany:null,sellerCompany:null,supplierCompany:null,supplier:null,sourceType:'OUR_COMPANY',variants:[{id:'variant-1',isActive:true,moq:1,stockStatus:'IN_STOCK',pricingMode:'FIXED',price:75,currency:'INR',unit:'kg',sku:'SKU-1',label:'10 kg drum',attributes:{}}] }]);
+    const tx={orderRequest:{count:vi.fn().mockResolvedValue(0),create:vi.fn().mockResolvedValue({id:'order-1',orderNumber:'CHM-2026-000001',userId:'test-user',items:[]})},orderStatusHistory:{create:vi.fn().mockResolvedValue({})}};
+    prisma.$transaction.mockRejectedValueOnce({code:'P2034'}).mockImplementationOnce(async callback=>callback(tx));
+    const response=await request(app).post('/api/orders/order-request').set('Authorization',`Bearer ${token()}`).send({items:[{productId:'product-1',variantId:'variant-1',quantity:1}],deliveryState:'Maharashtra',shippingAddress:{name:'Test Customer',phone:'1234567890',line1:'123 Test Road',city:'Pune',state:'Maharashtra',pincode:'411001'}});
+    expect(response.status).toBe(201);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.orderRequest.create).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects quantity below product MOQ before creating an order', async () => {
     prisma.product.findMany.mockResolvedValue([{ id:'product-1',name:'Reagent',status:'ACTIVE',deletedAt:null,minOrderQuantity:5,variants:[{id:'variant-1',isActive:true,moq:1,stockStatus:'IN_STOCK'}] }]);
     const response=await request(app).post('/api/orders/order-request').set('Authorization',`Bearer ${token()}`).send({items:[{productId:'product-1',variantId:'variant-1',quantity:2}],deliveryState:'Maharashtra',shippingAddress:{name:'Test Customer',phone:'1234567890',line1:'123 Test Road',city:'Pune',state:'Maharashtra',pincode:'411001'}});
     expect(response.status).toBe(400);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('blocks order requests until a customer account is approved', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id:'test-user',email:'test@example.test',role:'CUSTOMER',isActive:true,isApproved:false });
+    const response=await request(app).post('/api/orders/order-request').set('Authorization',`Bearer ${token()}`).send({items:[{productId:'product-1',variantId:'variant-1',quantity:1}],deliveryState:'Maharashtra',shippingAddress:{name:'Test Customer',phone:'1234567890',line1:'123 Test Road',city:'Pune',state:'Maharashtra',pincode:'411001'}});
+    expect(response.status).toBe(403);
+    expect(response.body.message).toMatch(/awaiting approval/i);
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('blocks order requests until a customer account is approved', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id:'test-user',email:'test@example.test',role:'CUSTOMER',isActive:true,isApproved:false });
+    const response=await request(app).post('/api/orders/order-request').set('Authorization',`Bearer ${token()}`).send({items:[{productId:'product-1',variantId:'variant-1',quantity:1}],deliveryState:'Maharashtra',shippingAddress:{name:'Test Customer',phone:'1234567890',line1:'123 Test Road',city:'Pune',state:'Maharashtra',pincode:'411001'}});
+    expect(response.status).toBe(403);
+    expect(response.body.message).toMatch(/awaiting approval/i);
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 

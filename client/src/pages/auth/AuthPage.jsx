@@ -43,7 +43,7 @@ export default function AuthPage({ mode = 'login', admin = false }) {
     try {
       if (isRegister) {
         await register(values);
-        navigate('/auth/login', { replace: true, state: { notice: 'Registration received. Sign in after your account is approved.' } });
+        navigate('/auth/login', { replace: true, state: { notice: 'Registration received. Your account is pending review. You can sign in now to complete your business profile; order requests open after approval.' } });
       } else {
         const signedIn = await login(values, admin);
         const destination = admin ? '/admin' : location.state?.from?.pathname || '/account';

@@ -261,7 +261,7 @@ export async function requestPasswordReset(email) {
     });
 
     // CLIENT_ORIGIN is used so the reset link points to the frontend
-    const resetUrl = `${config.cors.origin}/auth/reset-password?token=${rawToken}`;
+    const resetUrl = `${config.cors.origin}/auth/reset-password#token=${rawToken}`;
 
     sendMail({
       to: email,

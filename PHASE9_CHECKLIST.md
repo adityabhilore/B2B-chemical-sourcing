@@ -9,8 +9,9 @@
 - [x] Admin dashboard counts and recent orders come from the database; charts show the last 30 days of order requests and order status distribution. No visits or revenue are fabricated or displayed.
 - [x] Customer management shows name, business, email, phone, registration date, order count, and active/suspended status; account status can be changed.
 - [x] Customer detail shows profile contact information and order history. Password fields are never selected or returned.
-- [ ] Apply Phase 9 database migration and regenerate Prisma Client.
-- [ ] Complete the acceptance walkthrough after approval.
+- [x] Apply database migrations and regenerate Prisma Client (verified 17 October 2026).
+- [x] Verify Prisma schema and sequential company/category/brand/product numbers with rollback-only PostgreSQL inserts; no validation rows were retained.
+- [ ] Complete the remaining live acceptance walkthrough; record each outcome below.
 
 ## Manual acceptance steps
 

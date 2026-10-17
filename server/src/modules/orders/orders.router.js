@@ -5,11 +5,12 @@ import { authenticate } from '../../middleware/authenticate.js';
 import { requireAdmin, requireCustomer } from '../../middleware/authorise.js';
 import { validate } from '../../middleware/validate.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { badRequest, conflict, notFound } from '../../utils/AppError.js';
+import { badRequest, conflict, forbidden, notFound } from '../../utils/AppError.js';
 import { sendSuccess } from '../../utils/apiResponse.js';
 import { parsePagination, buildMeta } from '../../utils/pagination.js';
 import { notifyEmail } from '../../utils/notify.js';
 import { adminNewOrderAlert } from '../../templates/email/templates.js';
+import { writeAuditLog } from '../../utils/auditLog.js';
 
 const router = Router();
 const orderInput = z.object({
@@ -25,6 +26,7 @@ const orderIncludes = { user:{select:{id:true,fullName:true,email:true,phone:tru
 const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.SMTP_USER;
 
 router.post('/order-request', authenticate, requireCustomer, validate(orderInput), asyncHandler(async(req,res)=>{
+  if(!req.user.isApproved)throw forbidden('Your account is awaiting approval. Complete your business profile and contact the marketplace team if you need help.');
   const {items,deliveryState,notes,shippingAddress,idempotencyKey}=req.body;
   if(idempotencyKey){const old=await prisma.orderRequest.findUnique({where:{idempotencyKey},include:{items:true}});if(old){if(old.userId!==req.user.id)throw conflict('Idempotency key has already been used');return sendSuccess(res,{order:old},'Order request already received',200);}}
   const productIds=[...new Set(items.map(i=>i.productId))];
@@ -35,8 +37,21 @@ router.post('/order-request', authenticate, requireCustomer, validate(orderInput
     mapped.push({quantity:item.quantity,snapshotProductName:p.name,snapshotVariantSku:v.sku,snapshotVariantLabel:v.name||v.label,snapshotPackaging:[v.packageSize,v.packageUnit].filter(Boolean).join(' ')||v.label,snapshotBrand:p.brand?.name||null,snapshotManufacturer:p.manufacturerCompany?.name||p.manufacturer?.name||null,snapshotSeller:p.sellerCompany?.name||null,snapshotSource:{sourceType:p.sourceType,supplierName:p.supplierCompany?.name||p.supplier?.name||null,supplierCompanyId:p.supplierCompanyId||null,supplierId:p.supplierId||null},snapshotPrice:price,snapshotCurrency:v.currency,snapshotUnit:v.unit,snapshotAttributes:v.attributes||{},lineTotal:price==null?null:Number(price)*item.quantity,variantId:v.id});
   }
   const now=new Date();const y=now.getFullYear();let order;
-  try { order=await prisma.$transaction(async tx=>{const sequence=await tx.orderRequest.count({where:{createdAt:{gte:new Date(y,0,1),lt:new Date(y+1,0,1)}}});const orderNumber=`CHM-${y}-${String(sequence+1).padStart(6,'0')}`;const created=await tx.orderRequest.create({data:{orderNumber,userId:req.user.id,shippingAddress,deliveryState,notes:notes||null,idempotencyKey:idempotencyKey||null,estimatedTotal:quoteRequired?null:total,items:{create:mapped},statusHistory:{create:{fromStatus:null,toStatus:'PENDING',changedBy:'SYSTEM',note:'Order request submitted'}}},include:{items:true}});return created;},{isolationLevel:'Serializable'}); }
-  catch(error){if(error.code==='P2002'&&idempotencyKey){const old=await prisma.orderRequest.findUnique({where:{idempotencyKey},include:{items:true}});if(old?.userId===req.user.id)return sendSuccess(res,{order:old},'Order request already received',200);}throw error;}
+  for(let attempt=0;attempt<3;attempt++){
+    try{
+      order=await prisma.$transaction(async tx=>{
+        const sequence=await tx.orderRequest.count({where:{createdAt:{gte:new Date(y,0,1),lt:new Date(y+1,0,1)}}});
+        const orderNumber=`CHM-${y}-${String(sequence+1).padStart(6,'0')}`;
+        return tx.orderRequest.create({data:{orderNumber,userId:req.user.id,shippingAddress,deliveryState,notes:notes||null,idempotencyKey:idempotencyKey||null,estimatedTotal:quoteRequired?null:total,items:{create:mapped},statusHistory:{create:{fromStatus:null,toStatus:'PENDING',changedBy:'SYSTEM',note:'Order request submitted'}}},include:{items:true}});
+      },{isolationLevel:'Serializable'});
+      break;
+    }catch(error){
+      const retryable=error.code==='P2034'||error.code==='P2002';
+      if(retryable&&attempt<2)continue;
+      if(error.code==='P2002'&&idempotencyKey){const old=await prisma.orderRequest.findUnique({where:{idempotencyKey},include:{items:true}});if(old?.userId===req.user.id)return sendSuccess(res,{order:old},'Order request already received',200);}
+      throw error;
+    }
+  }
   const adminUrl=`${process.env.CLIENT_ORIGIN||'http://localhost:5173'}/admin/orders/${order.id}`;
   try { await notifyEmail({to:adminEmail,subject:`[Chemical Market] New order request ${order.orderNumber}`,html:adminNewOrderAlert({orderId:order.orderNumber,customerName:req.user.fullName,customerEmail:req.user.email,itemCount:mapped.length,adminOrderUrl:adminUrl}).html,templateId:'ORDER_REQUEST_ADMIN',userId:req.user.id,relatedEntity:'OrderRequest',relatedEntityId:order.id,orderRequestId:order.id}); } catch(error){console.error('[orders] Admin notification failed',error.message);}
   const waNumber=(process.env.ADMIN_WHATSAPP_NUMBER||'').replace(/\D/g,'');const waText=encodeURIComponent(`New order request ${order.orderNumber} from ${req.user.fullName}: ${mapped.length} item(s). ${adminUrl}`);const whatsappUrl=waNumber?`https://wa.me/${waNumber}?text=${waText}`:null;
@@ -45,7 +60,8 @@ router.post('/order-request', authenticate, requireCustomer, validate(orderInput
 }));
 
 router.get('/admin',authenticate,requireAdmin,validate(orderFilterInput,'query'),asyncHandler(async(req,res)=>{const {skip,take,page,limit}=parsePagination(req.query);const toExclusive=req.query.to?new Date(new Date(`${req.query.to}T00:00:00.000Z`).getTime()+86400000):null;const where={...(req.query.status?{status:req.query.status}:{}),...(req.query.customer?{userId:req.query.customer}:{}),...(req.query.from||req.query.to?{createdAt:{...(req.query.from?{gte:new Date(`${req.query.from}T00:00:00.000Z`)}:{}),...(toExclusive?{lt:toExclusive}:{})}}:{})};const [orders,total]=await Promise.all([prisma.orderRequest.findMany({where,skip,take,orderBy:{createdAt:'desc'},include:{user:{select:{id:true,fullName:true,email:true,phone:true}},items:{select:{id:true,snapshotProductName:true,quantity:true}}}}),prisma.orderRequest.count({where})]);sendSuccess(res,{orders,meta:buildMeta({page,limit,total})});}));
+router.get('/admin/notifications/failed',authenticate,requireAdmin,asyncHandler(async(req,res)=>{const {skip,take,page,limit}=parsePagination(req.query);const [items,total]=await Promise.all([prisma.notificationLog.findMany({where:{status:'FAILED'},skip,take,orderBy:{createdAt:'desc'},select:{id:true,channel:true,status:true,recipient:true,subject:true,error:true,createdAt:true,orderRequestId:true}}),prisma.notificationLog.count({where:{status:'FAILED'}})]);sendSuccess(res,{items,meta:buildMeta({page,limit,total})});}));
 router.get('/admin/:id',authenticate,requireAdmin,asyncHandler(async(req,res)=>{const order=await prisma.orderRequest.findUnique({where:{id:req.params.id},include:orderIncludes});if(!order)throw notFound('Order not found');sendSuccess(res,{order});}));
-router.patch('/admin/:id/status',authenticate,requireAdmin,validate(statusInput),asyncHandler(async(req,res)=>{const order=await prisma.orderRequest.findUnique({where:{id:req.params.id}});if(!order)throw notFound('Order not found');if(!transitions[order.status]?.includes(req.body.status))throw conflict(`Cannot move an order from ${order.status} to ${req.body.status}`);if(req.body.status==='CONFIRMED'&&order.estimatedTotal==null&&req.body.confirmedTotal==null)throw badRequest('Enter a confirmed total for quote requests');const updated=await prisma.$transaction(async tx=>{const value=await tx.orderRequest.update({where:{id:order.id},data:{status:req.body.status,...(req.body.confirmedTotal!==undefined?{confirmedTotal:req.body.confirmedTotal}:{})}});await tx.orderStatusHistory.create({data:{orderRequestId:order.id,fromStatus:order.status,toStatus:req.body.status,changedBy:req.user.id,note:req.body.note||null}});return value;});sendSuccess(res,{order:updated},'Order status updated');}));
+router.patch('/admin/:id/status',authenticate,requireAdmin,validate(statusInput),asyncHandler(async(req,res)=>{const order=await prisma.orderRequest.findUnique({where:{id:req.params.id}});if(!order)throw notFound('Order not found');if(!transitions[order.status]?.includes(req.body.status))throw conflict(`Cannot move an order from ${order.status} to ${req.body.status}`);if(req.body.status==='CONFIRMED'&&order.estimatedTotal==null&&req.body.confirmedTotal==null)throw badRequest('Enter a confirmed total for quote requests');const updated=await prisma.$transaction(async tx=>{const value=await tx.orderRequest.update({where:{id:order.id},data:{status:req.body.status,...(req.body.confirmedTotal!==undefined?{confirmedTotal:req.body.confirmedTotal}:{})}});await tx.orderStatusHistory.create({data:{orderRequestId:order.id,fromStatus:order.status,toStatus:req.body.status,changedBy:req.user.id,note:req.body.note||null}});return value;});await writeAuditLog({userId:req.user.id,action:'ORDER_STATUS_CHANGED',entity:'OrderRequest',entityId:order.id,before:{status:order.status,confirmedTotal:order.confirmedTotal==null?null:Number(order.confirmedTotal)},after:{status:updated.status,confirmedTotal:updated.confirmedTotal==null?null:Number(updated.confirmedTotal)}});sendSuccess(res,{order:updated},'Order status updated');}));
 router.post('/admin/notifications/:id/retry',authenticate,requireAdmin,asyncHandler(async(req,res)=>{const {retryNotification}=await import('../../utils/notify.js');const result=await retryNotification(req.params.id);sendSuccess(res,result,result.ok?'Notification sent':'Notification retry failed');}));
 export default router;
